@@ -36,7 +36,9 @@ def load_design_system() -> None:
 
 def render_html(markup: str) -> None:
     """Render custom HTML without Markdown treating indentation as code."""
-    st.markdown(textwrap.dedent(markup).strip(), unsafe_allow_html=True)
+    normalized = textwrap.dedent(markup).strip()
+    compact = "".join(line.strip() for line in normalized.splitlines() if line.strip())
+    st.markdown(compact, unsafe_allow_html=True)
 
 
 def render_sidebar_brand() -> None:
