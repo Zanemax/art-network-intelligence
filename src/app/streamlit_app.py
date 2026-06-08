@@ -21,11 +21,19 @@ from src.app.components.ui import (  # noqa: E402
     note_box,
     pill,
     render_header,
-    render_interactive_graph,
     render_pill,
     render_sidebar_brand,
     section_heading,
     table_label,
+)
+from src.app.components.graph_view import (  # noqa: E402
+    SIGNAL_TYPES,
+    filter_graph_by_confidence,
+    filter_graph_by_date,
+    get_artist_ego_network,
+    graph_signal_summary,
+    highlighted_evidence_nodes,
+    render_graph_view,
 )
 from src.data.quality import LOW_QUALITY_WARNING, calculate_data_quality  # noqa: E402
 from src.data.synthetic import load_synthetic_dataset  # noqa: E402
@@ -39,13 +47,13 @@ from src.models.similarity import find_similar_artists  # noqa: E402
 
 
 PAGES = [
-    "Dashboard",
     "Artist Profile",
-    "Similar Artists",
-    "Taste Graph",
-    "Model Performance",
-    "Data Quality",
+    "Evidence",
+    "Comparables",
+    "Taste Graph Explorer",
 ]
+
+DEFAULT_GRAPH_NODE_TYPES = {"artist", "gallery", "museum", "collector", "curator", "exhibition", "acquisition"}
 
 
 def main() -> None:
@@ -67,28 +75,20 @@ def main() -> None:
     as_of_date = st.sidebar.text_input("Prediction date", value="2021-12-31")
     page = st.sidebar.radio("Navigation", PAGES, label_visibility="collapsed")
 
-    header_cols = st.columns([0.68, 0.32])
-    with header_cols[0]:
-        render_header(
-            page,
-            "Temporal taste-graph intelligence for artist diligence, market monitoring, and institutional signal discovery.",
-            _last_refresh_timestamp(),
-        )
-    with header_cols[1]:
-        st.text_input("Search artists, galleries, museums", placeholder="Search the network", label_visibility="collapsed")
+    render_header(
+        page,
+        "A collector-facing research brief focused on thesis, evidence, and comparable outcomes.",
+        _last_refresh_timestamp(),
+    )
 
-    if page == "Dashboard":
-        _render_dashboard(dataset, graph, predictions, quality, as_of_date)
-    elif page == "Artist Profile":
-        _render_artist_profile(dataset, graph, quality, selected, as_of_date)
-    elif page == "Similar Artists":
-        _render_similar_artists(dataset, graph, selected, as_of_date)
-    elif page == "Taste Graph":
-        _render_graph_explorer(graph, str(selected["artist_id"]))
-    elif page == "Model Performance":
-        _render_model_performance()
+    if page == "Artist Profile":
+        _render_artist_brief(dataset, graph, quality, selected, as_of_date)
+    elif page == "Evidence":
+        _render_evidence(dataset, graph, quality, selected, as_of_date)
+    elif page == "Comparables":
+        _render_comparables(dataset, graph, selected, as_of_date)
     else:
-        _render_data_quality(dataset, graph, quality)
+        _render_taste_graph_explorer(graph, selected, as_of_date)
 
 
 @st.cache_data(show_spinner=False)
@@ -100,6 +100,257 @@ def _load_demo_state() -> dict[str, object]:
     result = train_investment_model(features)
     quality = calculate_data_quality(dataset, graph)
     return {"dataset": dataset, "graph": graph, "predictions": result.predictions, "quality": quality}
+
+
+def _render_artist_brief(
+    dataset: dict[str, pd.DataFrame],
+    graph: nx.MultiDiGraph,
+    quality: pd.DataFrame,
+    selected: pd.Series,
+    as_of_date: str,
+) -> None:
+    """Render a collector-focused decision brief for one artist."""
+    context = _artist_context(dataset, graph, quality, selected, as_of_date)
+    artist_id = str(selected["artist_id"])
+    artist_name = str(selected["name"])
+    feature_row = context["feature_row"]
+    probabilities = context["probabilities"]
+    explanation = context["explanation"]
+    similar = context["similar"]
+    artist_quality = context["artist_quality"]
+
+    st.markdown(f"## {artist_name}")
+    st.markdown(
+        f"{pill('Research brief', 'neutral')} {pill(_institutional_status(feature_row), 'success')} "
+        f"{pill(_quality_confidence_label(artist_quality) + ' data confidence', _quality_tone(artist_quality))}",
+        unsafe_allow_html=True,
+    )
+
+    top_cols = st.columns([0.24, 0.24, 0.26, 0.26])
+    with top_cols[0]:
+        metric_card("Breakout score", f"{probabilities['breakout_probability']:.0%}", "Experimental model output", "success")
+    with top_cols[1]:
+        metric_card("Confidence", explanation.confidence_level.title(), "Use as research priority, not advice", _confidence_tone(explanation.confidence_level))
+    with top_cols[2]:
+        metric_card("Current gallery", _current_gallery(graph, artist_id, as_of_date), "Representation signal", "neutral")
+    with top_cols[3]:
+        metric_card("Institutional status", _institutional_status(feature_row), "Museum exposure and acquisitions", "neutral")
+
+    section_heading("1. Why Is This Artist Interesting?", "Decision thesis")
+    note_box(str(explanation.explanation_text))
+    thesis_cols = st.columns(3)
+    with thesis_cols[0]:
+        metric_card(
+            "Institutional signal",
+            f"{int(feature_row['major_museum_exhibition_count']) + int(feature_row['major_museum_acquisition_count'])}",
+            "Major museum shows and acquisitions",
+            "success",
+        )
+    with thesis_cols[1]:
+        metric_card(
+            "Market signal",
+            f"{probabilities['market_success_probability']:.0%}",
+            "Auction growth, lots, and gallery strength",
+            "warning",
+        )
+    with thesis_cols[2]:
+        metric_card(
+            "Network signal",
+            f"{int(feature_row['collector_degree']) + int(feature_row['curator_degree'])}",
+            "Collector and curator connections",
+            "neutral",
+        )
+
+    section_heading("2. What Evidence Supports The Score?", "Only point-in-time evidence")
+    evidence_cols = st.columns([0.45, 0.55])
+    with evidence_cols[0]:
+        st.dataframe(_collector_evidence_summary(feature_row, artist_quality), width="stretch", hide_index=True)
+    with evidence_cols[1]:
+        st.dataframe(_artist_timeline(graph, artist_id, as_of_date).head(7), width="stretch", hide_index=True)
+
+    if explanation.data_quality_warning:
+        note_box(explanation.data_quality_warning, warning=True)
+
+    section_heading("Network Evidence", "Relationships creating the strongest signal")
+    note_box("This network shows the relationships contributing most to the artist's score.")
+    profile_graph_cols = st.columns([0.68, 0.32])
+    comparable_ids = similar["artist_id"].head(5).tolist()
+    ego_graph = get_artist_ego_network(graph, artist_id, max_nodes=18, comparable_artist_ids=comparable_ids)
+    highlights = highlighted_evidence_nodes(ego_graph, artist_id, comparable_ids)
+    with profile_graph_cols[0]:
+        render_graph_view(ego_graph, selected_node=artist_id, highlighted_nodes=highlights, max_edges=28, height=520)
+    with profile_graph_cols[1]:
+        st.dataframe(graph_signal_summary(ego_graph, artist_id), width="stretch", hide_index=True)
+        table_label("Highlight key")
+        st.markdown(
+            f"{pill('current gallery', 'neutral')} {pill('museums', 'success')} "
+            f"{pill('collectors', 'neutral')} {pill('curators', 'warning')} {pill('comparables', 'danger')}",
+            unsafe_allow_html=True,
+        )
+
+    section_heading("3. Which Comparable Artists Succeeded Or Failed?", "Later outcomes where available")
+    st.dataframe(_comparables_table(similar).head(5), width="stretch", hide_index=True)
+
+
+def _render_evidence(
+    dataset: dict[str, pd.DataFrame],
+    graph: nx.MultiDiGraph,
+    quality: pd.DataFrame,
+    selected: pd.Series,
+    as_of_date: str,
+) -> None:
+    """Render the supporting evidence behind one artist score."""
+    context = _artist_context(dataset, graph, quality, selected, as_of_date)
+    artist_id = str(selected["artist_id"])
+    artist_name = str(selected["name"])
+    feature_row = context["feature_row"]
+    probabilities = context["probabilities"]
+    explanation = context["explanation"]
+    artist_quality = context["artist_quality"]
+
+    st.markdown(f"## Evidence for {artist_name}")
+    score_cols = st.columns(3)
+    with score_cols[0]:
+        metric_card("Institutional probability", f"{probabilities['institutional_success_probability']:.0%}", "3-year label window", "success")
+    with score_cols[1]:
+        metric_card("Market probability", f"{probabilities['market_success_probability']:.0%}", "Auction and demand signal", "warning")
+    with score_cols[2]:
+        metric_card("Gallery advancement", f"{context['gallery_probability']:.0%}", "Representation upgrade signal", "neutral")
+
+    left, right = st.columns([0.48, 0.52])
+    with left:
+        section_heading("Positive Evidence", "Drivers that raise conviction")
+        driver_list(explanation.top_positive_drivers)
+        section_heading("Cautions", "Reasons to keep researching")
+        driver_list(explanation.top_negative_drivers, empty_text="No major negative drivers in the current feature view.")
+        section_heading("Data Quality", "Can this score be trusted?")
+        st.dataframe(_quality_summary(artist_quality), width="stretch", hide_index=True)
+        if explanation.data_quality_warning:
+            note_box(explanation.data_quality_warning, warning=True)
+    with right:
+        section_heading("Evidence Summary", "Signals used by the model")
+        st.dataframe(_collector_evidence_summary(feature_row, artist_quality), width="stretch", hide_index=True)
+        section_heading("Career Evidence", f"Visible on or before {as_of_date}")
+        st.dataframe(_artist_timeline(graph, artist_id, as_of_date), width="stretch", hide_index=True)
+
+    section_heading("Source Tables", "Detailed records, collapsed by default")
+    _render_profile_expanders(dataset, graph, artist_id, as_of_date)
+
+
+def _render_comparables(
+    dataset: dict[str, pd.DataFrame],
+    graph: nx.MultiDiGraph,
+    selected: pd.Series,
+    as_of_date: str,
+) -> None:
+    """Render comparable artist outcomes for collector diligence."""
+    artist_id = str(selected["artist_id"])
+    artist_name = str(selected["name"])
+    similar = find_similar_artists(graph, dataset, artist_id, as_of_date, top_n=5)
+
+    st.markdown(f"## Comparable Artists for {artist_name}")
+    note_box("Comparables are matched on normalized career-trajectory and graph-derived features as of the selected prediction date.")
+
+    cols = st.columns(3)
+    for column, (_, row) in zip(cols, similar.head(3).iterrows()):
+        with column:
+            metric_card(
+                str(row["artist_name"]),
+                f"{float(row['similarity_score']):.0%}",
+                _outcome_summary(row),
+                "success" if _has_positive_outcome(row) else "warning",
+            )
+
+    section_heading("Succeeded Or Failed?", "Later outcomes attached to each comparable")
+    st.dataframe(_comparables_table(similar), width="stretch", hide_index=True)
+
+    section_heading("Why They Are Comparable", "Shared signals, not visual similarity")
+    st.dataframe(
+        similar[["artist_name", "shared_signals"]].rename(
+            columns={"artist_name": "artist", "shared_signals": "shared_signals"}
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+
+    section_heading("Side-By-Side Signals", f"Point-in-time features as of {as_of_date}")
+    feature_frame = build_artist_graph_features(graph, as_of_date)
+    selected_ids = [artist_id] + similar["artist_id"].head(5).tolist()
+    side_by_side = feature_frame[feature_frame["artist_id"].isin(selected_ids)].merge(
+        dataset["artists"][["artist_id", "name"]],
+        on="artist_id",
+        how="left",
+    )
+    display_columns = [
+        "name",
+        "museum_exhibition_count",
+        "major_museum_acquisition_count",
+        "gallery_prestige_score",
+        "collector_degree",
+        "curator_degree",
+        "auction_price_growth_1y",
+        "press_mention_growth_1y",
+        "graph_distance_to_major_institution",
+    ]
+    st.dataframe(side_by_side[display_columns], width="stretch", hide_index=True)
+
+
+def _render_taste_graph_explorer(
+    graph: nx.MultiDiGraph,
+    selected: pd.Series,
+    as_of_date: str,
+) -> None:
+    """Render the full graph explorer as a focused evidence workflow."""
+    st.markdown("## Taste Graph Explorer")
+    note_box("Default view is an ego-network so the graph stays legible. Use full-network mode only after narrowing filters.")
+
+    node_types = sorted({str(data.get("node_type", "unknown")) for _, data in graph.nodes(data=True)})
+    relationship_types = sorted({str(data.get("relationship_type", "unknown")) for _, _, data in graph.edges(data=True)})
+    entity_options = _entity_options(graph)
+    selected_artist_id = str(selected["artist_id"])
+    default_entity_index = list(entity_options.values()).index(selected_artist_id) if selected_artist_id in entity_options.values() else 0
+
+    filter_cols = st.columns([0.23, 0.25, 0.15, 0.14, 0.13, 0.10])
+    selected_entity_label = filter_cols[0].selectbox("Search artist/entity", entity_options, index=default_entity_index)
+    selected_node_id = entity_options[selected_entity_label]
+    default_node_types = [node_type for node_type in node_types if node_type in DEFAULT_GRAPH_NODE_TYPES]
+    default_relationships = [relationship for relationship in relationship_types if relationship in SIGNAL_TYPES]
+    selected_node_types = filter_cols[1].multiselect("Node type", node_types, default=default_node_types)
+    selected_relationships = filter_cols[2].multiselect("Relationship", relationship_types, default=default_relationships)
+    min_confidence = filter_cols[3].slider("Confidence", 0.0, 1.0, 0.0, 0.05)
+    cutoff = filter_cols[4].text_input("Date cutoff", value=as_of_date)
+    max_nodes = filter_cols[5].number_input("Max nodes", min_value=10, max_value=80, value=25, step=5)
+
+    mode = st.radio("Graph mode", ["Ego-network", "Full network"], horizontal=True)
+    filtered = filter_graph_by_confidence(filter_graph_by_date(graph, cutoff), min_confidence)
+    filtered = _filter_graph_by_types(filtered, set(selected_node_types), set(selected_relationships))
+
+    if mode == "Ego-network":
+        visible_graph = get_artist_ego_network(filtered, selected_node_id, max_nodes=int(max_nodes))
+    else:
+        visible_graph = _limit_graph_nodes(filtered, int(max_nodes), selected_node_id)
+
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Visible Nodes", visible_graph.number_of_nodes())
+    metric_cols[1].metric("Visible Edges", visible_graph.number_of_edges())
+    metric_cols[2].metric("Mode", mode)
+    metric_cols[3].metric("Min Confidence", f"{min_confidence:.2f}")
+
+    graph_cols = st.columns([0.70, 0.30])
+    with graph_cols[0]:
+        render_graph_view(
+            visible_graph,
+            selected_node=selected_node_id if selected_node_id in visible_graph else None,
+            highlighted_nodes=highlighted_evidence_nodes(visible_graph, selected_node_id),
+            max_edges=100,
+            height=610,
+            show_edge_labels=mode == "Ego-network",
+        )
+    with graph_cols[1]:
+        section_heading("Selected Node", "Entity detail panel")
+        st.dataframe(_selected_node_detail(graph, selected_node_id), width="stretch", hide_index=True)
+        section_heading("Relationships", "Filtered evidence touching selected node")
+        st.dataframe(_selected_node_relationships(visible_graph, selected_node_id), width="stretch", hide_index=True)
 
 
 def _render_dashboard(
@@ -421,6 +672,123 @@ def _render_profile_expanders(
         st.dataframe(_artist_timeline(graph, artist_id, as_of_date), width="stretch", hide_index=True)
 
 
+def _artist_context(
+    dataset: dict[str, pd.DataFrame],
+    graph: nx.MultiDiGraph,
+    quality: pd.DataFrame,
+    selected: pd.Series,
+    as_of_date: str,
+) -> dict[str, object]:
+    """Build the artist-specific context shared across the decision pages."""
+    artist_id = str(selected["artist_id"])
+    graph_features = build_artist_graph_features(graph, as_of_date)
+    feature_row = graph_features.loc[graph_features["artist_id"] == artist_id].iloc[0]
+    similar = find_similar_artists(graph, dataset, artist_id, as_of_date, top_n=5)
+    artist_quality = _artist_quality_row(quality, artist_id)
+    probabilities = _demo_probabilities(float(selected["prediction_probability"]), feature_row)
+    explanation = explain_artist_prediction(
+        artist_id=artist_id,
+        score=probabilities["breakout_probability"],
+        feature_row=feature_row,
+        feature_frame=graph_features.drop(columns=["artist_id"]),
+        comparable_artists=similar["artist_name"].head(3).tolist(),
+        quality_row=artist_quality,
+    )
+    return {
+        "feature_row": feature_row,
+        "similar": similar,
+        "artist_quality": artist_quality,
+        "probabilities": probabilities,
+        "gallery_probability": _gallery_advancement_probability(feature_row),
+        "explanation": explanation,
+    }
+
+
+def _collector_evidence_summary(feature_row: pd.Series, quality_row: pd.Series | None) -> pd.DataFrame:
+    """Summarize the evidence in terms a collector can scan quickly."""
+    rows = [
+        {
+            "evidence": "Museum exposure",
+            "value": str(int(feature_row.get("museum_exhibition_count", 0))),
+            "why_it_matters": "Shows institutional validation before the prediction date.",
+        },
+        {
+            "evidence": "Major museum acquisitions",
+            "value": str(int(feature_row.get("major_museum_acquisition_count", 0))),
+            "why_it_matters": "Signals durable institutional demand.",
+        },
+        {
+            "evidence": "Gallery strength",
+            "value": f"{float(feature_row.get('gallery_prestige_score', 0)):.2f}",
+            "why_it_matters": "Representation affects access, pricing, and placement.",
+        },
+        {
+            "evidence": "Collector / curator links",
+            "value": str(int(feature_row.get("collector_degree", 0)) + int(feature_row.get("curator_degree", 0))),
+            "why_it_matters": "Network proximity can precede institutional or market movement.",
+        },
+        {
+            "evidence": "Auction growth",
+            "value": f"{float(feature_row.get('auction_price_growth_1y', 0)):.2f}x",
+            "why_it_matters": "Measures recent secondary-market price acceleration.",
+        },
+        {
+            "evidence": "Press momentum",
+            "value": f"{float(feature_row.get('press_mention_growth_1y', 0)):.2f}x",
+            "why_it_matters": "Captures rising attention that may support further diligence.",
+        },
+        {
+            "evidence": "Data confidence",
+            "value": _quality_confidence_label(quality_row),
+            "why_it_matters": "Low-confidence evidence should reduce reliance on the score.",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def _comparables_table(similar: pd.DataFrame) -> pd.DataFrame:
+    """Return comparables with readable outcome labels."""
+    if similar.empty:
+        return pd.DataFrame(columns=["artist", "similarity", "outcome", "shared_signals"])
+    rows = similar.copy()
+    rows["artist"] = rows["artist_name"]
+    rows["similarity"] = rows["similarity_score"].map(lambda value: f"{float(value):.0%}")
+    rows["outcome"] = rows.apply(_outcome_summary, axis=1)
+    return rows[["artist", "similarity", "outcome", "shared_signals"]]
+
+
+def _outcome_summary(row: pd.Series) -> str:
+    """Summarize whether a comparable later succeeded or failed."""
+    outcomes = []
+    if int(row.get("institutional_success_3y", 0)) == 1:
+        outcomes.append("institutional success")
+    if int(row.get("market_success_3y", 0)) == 1:
+        outcomes.append("market success")
+    if int(row.get("gallery_success_3y", 0)) == 1:
+        outcomes.append("gallery success")
+    if outcomes:
+        return "Succeeded: " + ", ".join(outcomes)
+    return "No 3-year success outcome recorded"
+
+
+def _has_positive_outcome(row: pd.Series) -> bool:
+    """Return whether a comparable has at least one positive future outcome."""
+    return any(
+        int(row.get(column, 0)) == 1
+        for column in ["institutional_success_3y", "market_success_3y", "gallery_success_3y"]
+    )
+
+
+def _quality_tone(quality_row: pd.Series | None) -> str:
+    """Map data quality into visual tone."""
+    label = _quality_confidence_label(quality_row)
+    if label == "High":
+        return "success"
+    if label == "Medium":
+        return "warning"
+    return "danger"
+
+
 def _demo_probabilities(breakout_probability: float, feature_row: pd.Series) -> dict[str, float]:
     """Create product-demo probability views from point-in-time signals."""
     institutional_raw = (
@@ -701,6 +1069,65 @@ def _selected_node_relationships(graph: nx.MultiDiGraph, node_id: str) -> pd.Dat
     for source, target, data in graph.out_edges(node_id, data=True):
         rows.append(_relationship_row(graph, "outbound", target, data))
     return pd.DataFrame(rows).head(16)
+
+
+def _entity_options(graph: nx.MultiDiGraph) -> dict[str, str]:
+    """Return searchable graph entity labels mapped to node IDs."""
+    labels = {}
+    for node_id, data in sorted(graph.nodes(data=True), key=lambda item: str(item[1].get("name") or item[1].get("title") or item[0])):
+        node_type = str(data.get("node_type", "unknown"))
+        label = data.get("name") or data.get("title") or node_id
+        labels[f"{label}  ·  {node_type}"] = node_id
+    return labels
+
+
+def _filter_graph_by_types(
+    graph: nx.MultiDiGraph,
+    node_types: set[str],
+    relationship_types: set[str],
+) -> nx.MultiDiGraph:
+    """Filter graph by selected node and relationship types."""
+    filtered = nx.MultiDiGraph()
+    for node_id, data in graph.nodes(data=True):
+        if data.get("node_type") in node_types:
+            filtered.add_node(node_id, **data)
+    for source, target, data in graph.edges(data=True):
+        if source not in filtered or target not in filtered:
+            continue
+        if data.get("relationship_type") in relationship_types:
+            filtered.add_edge(source, target, **data)
+    return filtered
+
+
+def _limit_graph_nodes(graph: nx.MultiDiGraph, max_nodes: int, selected_node_id: str) -> nx.MultiDiGraph:
+    """Limit full-network mode to a readable number of relevant nodes."""
+    if graph.number_of_nodes() <= max_nodes:
+        return graph.copy()
+    undirected = nx.Graph(graph)
+    centrality = nx.degree_centrality(undirected) if undirected.number_of_nodes() > 1 else {}
+    ranked = sorted(graph.nodes(), key=lambda node_id: centrality.get(node_id, 0), reverse=True)
+    selected_nodes = [selected_node_id] if selected_node_id in graph else []
+    for node_id in ranked:
+        if node_id not in selected_nodes:
+            selected_nodes.append(node_id)
+        if len(selected_nodes) >= max_nodes:
+            break
+    return graph.subgraph(selected_nodes).copy()
+
+
+def _selected_node_detail(graph: nx.MultiDiGraph, node_id: str) -> pd.DataFrame:
+    """Return concise selected-node metadata for the explorer panel."""
+    if node_id not in graph:
+        return pd.DataFrame([{"field": "node", "value": "Not found"}])
+    data = graph.nodes[node_id]
+    fields = ["node_type", "name", "title", "region", "tier", "prestige_score", "birth_year"]
+    rows = [{"field": "node_id", "value": node_id}]
+    rows.extend(
+        {"field": field, "value": data.get(field)}
+        for field in fields
+        if field in data and pd.notna(data.get(field))
+    )
+    return pd.DataFrame(rows)
 
 
 def _relationship_row(graph: nx.MultiDiGraph, direction: str, counterparty_id: str, data: dict[str, object]) -> dict[str, object]:

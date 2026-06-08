@@ -50,8 +50,15 @@ and muted institutional accents that fit an investor-grade art workflow.
 }
 
 #MainMenu,
-footer,
+footer {
+  visibility: hidden;
+}
+
 header[data-testid="stHeader"] {
+  background: transparent;
+}
+
+header[data-testid="stHeader"] [data-testid="stToolbar"] {
   visibility: hidden;
 }
 
