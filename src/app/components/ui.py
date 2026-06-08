@@ -83,6 +83,102 @@ def metric_card(label: str, value: str, caption: str = "", tone: str = "neutral"
     )
 
 
+def score_card(label: str, value: str, caption: str = "", confidence: str = "", tone: str = "neutral") -> None:
+    """Render a high-emphasis score card for model outputs."""
+    badge = confidence_badge(confidence, tone) if confidence else ""
+    st.markdown(
+        f"""
+        <div class="ani-score-panel">
+          <div class="ani-score-topline">
+            <span>{escape(label)}</span>
+            {badge}
+          </div>
+          <div class="ani-score-value">{escape(value)}</div>
+          <div class="ani-score-caption">{escape(caption)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def evidence_card(title: str, value: str, body: str, tone: str = "neutral") -> None:
+    """Render one evidence card."""
+    st.markdown(
+        f"""
+        <div class="ani-evidence-card {escape(tone)}">
+          <div class="ani-evidence-card-head">
+            <span>{escape(title)}</span>
+            {pill(value, tone=tone)}
+          </div>
+          <div class="ani-evidence-card-body">{escape(body)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def evidence_grid(rows: pd.DataFrame, limit: int = 6) -> None:
+    """Render evidence rows as a responsive card grid."""
+    if rows.empty:
+        empty_state("No evidence available", "Add sourced events or relationships to populate this section.")
+        return
+    cards = []
+    for _, row in rows.head(limit).iterrows():
+        tone = "success" if str(row.get("evidence", "")).lower().startswith(("museum", "major")) else "neutral"
+        if "confidence" in str(row.get("evidence", "")).lower():
+            tone = "warning" if str(row.get("value", "")).lower() in {"low", "medium"} else "success"
+        cards.append(
+            f"""
+            <div class="ani-evidence-card {tone}">
+              <div class="ani-evidence-card-head">
+                <span>{escape(row.get("evidence", ""))}</span>
+                {pill(row.get("value", ""), tone=tone)}
+              </div>
+              <div class="ani-evidence-card-body">{escape(row.get("why_it_matters", ""))}</div>
+            </div>
+            """
+        )
+    st.markdown(f'<div class="ani-card-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def confidence_badge(label: str, tone: str = "neutral") -> str:
+    """Return a compact confidence badge."""
+    safe_tone = tone if tone in {"neutral", "success", "warning", "danger"} else "neutral"
+    return f'<span class="ani-confidence-badge {safe_tone}">{escape(label)}</span>'
+
+
+def relationship_cards(rows: pd.DataFrame, limit: int = 6) -> None:
+    """Render relationship/timeline rows as readable cards."""
+    if rows.empty:
+        empty_state("No relationship evidence", "No dated relationships are available for the selected filters.")
+        return
+    cards = []
+    for _, row in rows.head(limit).iterrows():
+        cards.append(
+            f"""
+            <div class="ani-relationship-card">
+              <div class="ani-relationship-date">{escape(row.get("date", ""))}</div>
+              <div class="ani-relationship-main">{escape(row.get("relationship", ""))}</div>
+              <div class="ani-relationship-meta">{escape(row.get("counterparty", ""))} · {escape(row.get("counterparty_type", ""))}</div>
+            </div>
+            """
+        )
+    st.markdown(f'<div class="ani-relationship-list">{"".join(cards)}</div>', unsafe_allow_html=True)
+
+
+def empty_state(title: str, body: str = "") -> None:
+    """Render a quiet empty state."""
+    st.markdown(
+        f"""
+        <div class="ani-empty-state">
+          <div class="ani-empty-title">{escape(title)}</div>
+          <div class="ani-empty-body">{escape(body)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def section_heading(title: str, caption: str = "") -> None:
     """Render a reusable section heading."""
     st.markdown(

@@ -49,13 +49,49 @@ and muted institutional accents that fit an investor-grade art workflow.
   font-family: var(--ani-font);
 }
 
+/* Streamlit chrome: keep the header mounted so sidebar restore controls work. */
 #MainMenu,
-footer {
-  visibility: hidden;
+footer,
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+[data-testid="stToastContainer"],
+.viewerBadge_container__1QSob,
+.stDeployButton,
+[data-testid="stDeployButton"],
+[data-testid="manage-app-button"] {
+  display: none !important;
+  visibility: hidden !important;
 }
 
-header[data-testid="stHeader"] {
+header[data-testid="stHeader"],
+[data-testid="stHeader"] {
   background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+header[data-testid="stHeader"]::before,
+header[data-testid="stHeader"]::after,
+[data-testid="stHeader"]::before,
+[data-testid="stHeader"]::after {
+  display: none;
+}
+
+/* Hide non-navigation header actions without removing sidebar controls. */
+header[data-testid="stHeader"] [data-testid="stToolbar"],
+[data-testid="stHeader"] [data-testid="stToolbar"] {
+  background: transparent;
+}
+
+header[data-testid="stHeader"] [data-testid="stToolbar"] button[title*="Deploy"],
+header[data-testid="stHeader"] [data-testid="stToolbar"] button[aria-label*="Deploy"],
+header[data-testid="stHeader"] [data-testid="stToolbar"] a[href*="share.streamlit.io"],
+header[data-testid="stHeader"] [data-testid="stToolbar"] a[href*="streamlit.io/cloud"],
+[data-testid="stHeader"] [data-testid="stToolbar"] button[title*="Deploy"],
+[data-testid="stHeader"] [data-testid="stToolbar"] button[aria-label*="Deploy"],
+[data-testid="stHeader"] [data-testid="stToolbar"] a[href*="share.streamlit.io"],
+[data-testid="stHeader"] [data-testid="stToolbar"] a[href*="streamlit.io/cloud"] {
+  display: none !important;
 }
 
 .block-container {
@@ -67,6 +103,18 @@ header[data-testid="stHeader"] {
 [data-testid="stSidebar"] {
   background: var(--ani-surface);
   border-right: 1px solid var(--ani-border);
+  box-shadow: none;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+  background: var(--ani-surface);
+  border-right: 1px solid var(--ani-border);
+  padding-top: 1rem;
+}
+
+[data-testid="stSidebarNav"],
+[data-testid="stSidebarUserContent"] {
+  background: var(--ani-surface);
 }
 
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
@@ -74,6 +122,24 @@ header[data-testid="stHeader"] {
   color: var(--ani-muted);
   font-size: 0.8rem;
   letter-spacing: 0;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] {
+  background: var(--ani-surface-alt);
+  border: 1px solid var(--ani-border);
+  border-radius: var(--ani-radius);
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.35rem;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label {
+  border-radius: 6px;
+  padding: 0.3rem 0.4rem;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+  background: var(--ani-surface);
 }
 
 h1,
@@ -228,6 +294,74 @@ h3 {
   min-height: 132px;
 }
 
+.ani-score-panel {
+  background: var(--ani-surface);
+  border: 1px solid var(--ani-border);
+  border-radius: var(--ani-radius);
+  box-shadow: var(--ani-shadow);
+  min-height: 148px;
+  padding: 1.05rem 1.1rem;
+}
+
+.ani-score-topline {
+  align-items: center;
+  color: var(--ani-muted);
+  display: flex;
+  font-size: 0.78rem;
+  gap: 0.6rem;
+  justify-content: space-between;
+}
+
+.ani-score-value {
+  color: var(--ani-ink);
+  font-size: 2.05rem;
+  font-weight: 720;
+  line-height: 1;
+  margin-top: 0.9rem;
+}
+
+.ani-score-caption {
+  color: var(--ani-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin-top: 0.65rem;
+}
+
+.ani-confidence-badge {
+  border: 1px solid var(--ani-border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-family: var(--ani-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  padding: 0.32rem 0.48rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ani-confidence-badge.neutral {
+  background: var(--ani-surface-alt);
+  color: var(--ani-muted);
+}
+
+.ani-confidence-badge.success {
+  background: rgba(63, 101, 79, 0.1);
+  border-color: rgba(63, 101, 79, 0.25);
+  color: var(--ani-success);
+}
+
+.ani-confidence-badge.warning {
+  background: rgba(138, 109, 50, 0.1);
+  border-color: rgba(138, 109, 50, 0.25);
+  color: var(--ani-warning);
+}
+
+.ani-confidence-badge.danger {
+  background: rgba(136, 67, 57, 0.1);
+  border-color: rgba(136, 67, 57, 0.25);
+  color: var(--ani-danger);
+}
+
 .ani-pill {
   border: 1px solid var(--ani-border);
   border-radius: 999px;
@@ -295,6 +429,102 @@ h3 {
   color: var(--ani-ink);
   font-size: 0.82rem;
   padding: 0.55rem 0.65rem;
+}
+
+.ani-card-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.ani-evidence-card {
+  background: var(--ani-surface);
+  border: 1px solid var(--ani-border);
+  border-left: 3px solid var(--ani-border-strong);
+  border-radius: var(--ani-radius);
+  min-height: 112px;
+  padding: 0.85rem;
+}
+
+.ani-evidence-card.success {
+  border-left-color: var(--ani-success);
+}
+
+.ani-evidence-card.warning {
+  border-left-color: var(--ani-warning);
+}
+
+.ani-evidence-card.danger {
+  border-left-color: var(--ani-danger);
+}
+
+.ani-evidence-card-head {
+  align-items: center;
+  color: var(--ani-ink);
+  display: flex;
+  font-size: 0.84rem;
+  font-weight: 650;
+  gap: 0.55rem;
+  justify-content: space-between;
+}
+
+.ani-evidence-card-body {
+  color: var(--ani-muted);
+  font-size: 0.78rem;
+  line-height: 1.48;
+  margin-top: 0.65rem;
+}
+
+.ani-relationship-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.ani-relationship-card {
+  background: var(--ani-surface);
+  border: 1px solid var(--ani-border);
+  border-radius: var(--ani-radius);
+  padding: 0.75rem 0.85rem;
+}
+
+.ani-relationship-date {
+  color: var(--ani-accent-2);
+  font-family: var(--ani-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.ani-relationship-main {
+  color: var(--ani-ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+  margin-top: 0.25rem;
+}
+
+.ani-relationship-meta {
+  color: var(--ani-muted);
+  font-size: 0.76rem;
+  margin-top: 0.18rem;
+}
+
+.ani-empty-state {
+  background: var(--ani-surface-alt);
+  border: 1px dashed var(--ani-border-strong);
+  border-radius: var(--ani-radius);
+  padding: 1rem;
+}
+
+.ani-empty-title {
+  color: var(--ani-ink);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.ani-empty-body {
+  color: var(--ani-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin-top: 0.25rem;
 }
 
 .ani-warning-box {

@@ -16,14 +16,18 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.app.components.ui import (  # noqa: E402
     driver_list,
+    empty_state,
+    evidence_grid,
     load_design_system,
     metric_card,
     note_box,
     pill,
+    relationship_cards,
     render_header,
     render_pill,
     render_sidebar_brand,
     section_heading,
+    score_card,
     table_label,
 )
 from src.app.components.graph_view import (  # noqa: E402
@@ -177,9 +181,9 @@ def _render_artist_brief(
 
     top_cols = st.columns([0.24, 0.24, 0.26, 0.26])
     with top_cols[0]:
-        metric_card("Breakout score", f"{probabilities['breakout_probability']:.0%}", "Experimental model output", "success")
+        score_card("Breakout score", f"{probabilities['breakout_probability']:.0%}", "Experimental model output", "Model", "success")
     with top_cols[1]:
-        metric_card("Confidence", explanation.confidence_level.title(), "Use as research priority, not advice", _confidence_tone(explanation.confidence_level))
+        score_card("Confidence", explanation.confidence_level.title(), "Use as research priority, not advice", "Quality", _confidence_tone(explanation.confidence_level))
     with top_cols[2]:
         metric_card("Current gallery", _current_gallery(graph, artist_id, as_of_date), "Representation signal", "neutral")
     with top_cols[3]:
@@ -213,9 +217,9 @@ def _render_artist_brief(
     section_heading("2. What Evidence Supports The Score?", "Only point-in-time evidence")
     evidence_cols = st.columns([0.45, 0.55])
     with evidence_cols[0]:
-        st.dataframe(_collector_evidence_summary(feature_row, artist_quality), width="stretch", hide_index=True)
+        evidence_grid(_collector_evidence_summary(feature_row, artist_quality), limit=6)
     with evidence_cols[1]:
-        st.dataframe(_artist_timeline(graph, artist_id, as_of_date).head(7), width="stretch", hide_index=True)
+        relationship_cards(_artist_timeline(graph, artist_id, as_of_date), limit=6)
 
     if explanation.data_quality_warning:
         note_box(explanation.data_quality_warning, warning=True)
@@ -238,7 +242,11 @@ def _render_artist_brief(
         )
 
     section_heading("3. Which Comparable Artists Succeeded Or Failed?", "Later outcomes where available")
-    st.dataframe(_comparables_table(similar).head(5), width="stretch", hide_index=True)
+    comparables = _comparables_table(similar).head(5)
+    if comparables.empty:
+        empty_state("No comparable artists available", "Add richer artist histories to generate comparable trajectories.")
+    else:
+        st.dataframe(comparables, width="stretch", hide_index=True)
 
 
 def _render_evidence(
@@ -260,11 +268,11 @@ def _render_evidence(
     st.markdown(f"## Evidence for {artist_name}")
     score_cols = st.columns(3)
     with score_cols[0]:
-        metric_card("Institutional probability", f"{probabilities['institutional_success_probability']:.0%}", "3-year label window", "success")
+        score_card("Institutional probability", f"{probabilities['institutional_success_probability']:.0%}", "3-year label window", "Forecast", "success")
     with score_cols[1]:
-        metric_card("Market probability", f"{probabilities['market_success_probability']:.0%}", "Auction and demand signal", "warning")
+        score_card("Market probability", f"{probabilities['market_success_probability']:.0%}", "Auction and demand signal", "Forecast", "warning")
     with score_cols[2]:
-        metric_card("Gallery advancement", f"{context['gallery_probability']:.0%}", "Representation upgrade signal", "neutral")
+        score_card("Gallery advancement", f"{context['gallery_probability']:.0%}", "Representation upgrade signal", "Forecast", "neutral")
 
     left, right = st.columns([0.48, 0.52])
     with left:
@@ -278,9 +286,9 @@ def _render_evidence(
             note_box(explanation.data_quality_warning, warning=True)
     with right:
         section_heading("Evidence Summary", "Signals used by the model")
-        st.dataframe(_collector_evidence_summary(feature_row, artist_quality), width="stretch", hide_index=True)
+        evidence_grid(_collector_evidence_summary(feature_row, artist_quality), limit=7)
         section_heading("Career Evidence", f"Visible on or before {as_of_date}")
-        st.dataframe(_artist_timeline(graph, artist_id, as_of_date), width="stretch", hide_index=True)
+        relationship_cards(_artist_timeline(graph, artist_id, as_of_date), limit=8)
 
     section_heading("Source Tables", "Detailed records, collapsed by default")
     _render_profile_expanders(dataset, graph, artist_id, as_of_date)
@@ -380,10 +388,14 @@ def _render_taste_graph_explorer(
         visible_graph = _limit_graph_nodes(filtered, int(max_nodes), selected_node_id)
 
     metric_cols = st.columns(4)
-    metric_cols[0].metric("Visible Nodes", visible_graph.number_of_nodes())
-    metric_cols[1].metric("Visible Edges", visible_graph.number_of_edges())
-    metric_cols[2].metric("Mode", mode)
-    metric_cols[3].metric("Min Confidence", f"{min_confidence:.2f}")
+    with metric_cols[0]:
+        metric_card("Visible nodes", str(visible_graph.number_of_nodes()), "Filtered graph entities", "neutral")
+    with metric_cols[1]:
+        metric_card("Visible edges", str(visible_graph.number_of_edges()), "Relationships in view", "neutral")
+    with metric_cols[2]:
+        metric_card("Mode", mode, "Default keeps graph legible", "success" if mode == "Ego-network" else "warning")
+    with metric_cols[3]:
+        metric_card("Min confidence", f"{min_confidence:.2f}", "Relationship evidence threshold", "neutral")
 
     graph_cols = st.columns([0.70, 0.30])
     with graph_cols[0]:
@@ -399,7 +411,7 @@ def _render_taste_graph_explorer(
         section_heading("Selected Node", "Entity detail panel")
         st.dataframe(_selected_node_detail(graph, selected_node_id), width="stretch", hide_index=True)
         section_heading("Relationships", "Filtered evidence touching selected node")
-        st.dataframe(_selected_node_relationships(visible_graph, selected_node_id), width="stretch", hide_index=True)
+        relationship_cards(_selected_node_relationships(visible_graph, selected_node_id), limit=8)
 
 
 def _render_dashboard(
