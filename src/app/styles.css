@@ -58,10 +58,6 @@ header[data-testid="stHeader"] {
   background: transparent;
 }
 
-header[data-testid="stHeader"] [data-testid="stToolbar"] {
-  visibility: hidden;
-}
-
 .block-container {
   padding-top: 1.35rem;
   padding-bottom: 3rem;

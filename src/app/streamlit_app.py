@@ -36,12 +36,13 @@ from src.app.components.graph_view import (  # noqa: E402
     render_graph_view,
 )
 from src.data.quality import LOW_QUALITY_WARNING, calculate_data_quality  # noqa: E402
+from src.data.loaders import imported_data_available, load_imported_dataset  # noqa: E402
 from src.data.synthetic import load_synthetic_dataset  # noqa: E402
 from src.data.validate_schemas import validate_template_directory  # noqa: E402
 from src.graph.build_graph import build_investment_graph  # noqa: E402
 from src.graph.features import build_artist_graph_features  # noqa: E402
 from src.models.explain import explain_artist_prediction  # noqa: E402
-from src.models.features import build_artist_features  # noqa: E402
+from src.models.features import FEATURE_COLUMNS, build_artist_features  # noqa: E402
 from src.models.investment_model import train_investment_model  # noqa: E402
 from src.models.similarity import find_similar_artists  # noqa: E402
 
@@ -61,14 +62,19 @@ def main() -> None:
     st.set_page_config(page_title="Art Network Intelligence", layout="wide", initial_sidebar_state="expanded")
     load_design_system()
 
-    state = _load_demo_state()
+    render_sidebar_brand()
+    data_source_options = ["Synthetic demo data"]
+    if imported_data_available():
+        data_source_options.append("Imported real data")
+    data_source = st.sidebar.radio("Data source", data_source_options)
+    st.sidebar.markdown("#### Search Artist")
+    state = _load_demo_state(data_source)
     dataset = state["dataset"]
     graph = state["graph"]
     predictions = state["predictions"]
     quality = state["quality"]
+    scoring_mode = state["scoring_mode"]
 
-    render_sidebar_brand()
-    st.sidebar.markdown("#### Search Artist")
     artists = _artist_options(predictions)
     selected_label = st.sidebar.selectbox("Artist universe", artists, label_visibility="collapsed")
     selected = predictions.loc[predictions["artist_id"] == artists[selected_label]].iloc[0]
@@ -77,9 +83,12 @@ def main() -> None:
 
     render_header(
         page,
-        "A collector-facing research brief focused on thesis, evidence, and comparable outcomes.",
+        f"A collector-facing research brief focused on thesis, evidence, and comparable outcomes. Source: {data_source}.",
         _last_refresh_timestamp(),
     )
+
+    if scoring_mode != "trained_model":
+        note_box("Imported data is sparse, so scores are graph-derived heuristics until enough labeled history exists for model training.", warning=True)
 
     if page == "Artist Profile":
         _render_artist_brief(dataset, graph, quality, selected, as_of_date)
@@ -92,14 +101,54 @@ def main() -> None:
 
 
 @st.cache_data(show_spinner=False)
-def _load_demo_state() -> dict[str, object]:
-    """Load synthetic data, graph, and lightweight demo model scores."""
-    dataset = load_synthetic_dataset()
+def _load_demo_state(data_source: str = "Synthetic demo data") -> dict[str, object]:
+    """Load selected data source, graph, and lightweight demo scores."""
+    if data_source == "Imported real data" and imported_data_available():
+        dataset = load_imported_dataset()
+    else:
+        dataset = load_synthetic_dataset()
     graph = build_investment_graph(dataset)
     features = build_artist_features(dataset, graph)
-    result = train_investment_model(features)
+    if features["doubled_in_3_years"].nunique() >= 2:
+        result = train_investment_model(features)
+        predictions = result.predictions
+        scoring_mode = "trained_model"
+    else:
+        predictions = _heuristic_predictions(features)
+        scoring_mode = "graph_heuristic"
     quality = calculate_data_quality(dataset, graph)
-    return {"dataset": dataset, "graph": graph, "predictions": result.predictions, "quality": quality}
+    return {
+        "dataset": dataset,
+        "graph": graph,
+        "predictions": predictions,
+        "quality": quality,
+        "scoring_mode": scoring_mode,
+    }
+
+
+def _heuristic_predictions(features: pd.DataFrame) -> pd.DataFrame:
+    """Create probability-like scores when imported data has no training labels."""
+    rows = features[["artist_id", "name"] + FEATURE_COLUMNS + ["doubled_in_3_years"]].copy()
+    numeric = rows[FEATURE_COLUMNS].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    scaled = numeric.copy()
+    for column in FEATURE_COLUMNS:
+        max_value = float(numeric[column].max())
+        scaled[column] = numeric[column] / max_value if max_value > 0 else 0.0
+    weights = pd.Series(
+        {
+            "museum_exhibitions": 0.18,
+            "museum_acquisitions": 0.20,
+            "gallery_prestige_score": 0.16,
+            "collector_centrality_score": 0.12,
+            "curator_centrality_score": 0.10,
+            "auction_price_growth": 0.12,
+            "press_mention_velocity": 0.06,
+            "distance_to_top_tier_institution": -0.06,
+        }
+    )
+    score = (scaled * weights).sum(axis=1).clip(lower=0.01, upper=0.99)
+    rows["prediction_probability"] = score
+    return rows.sort_values("prediction_probability", ascending=False).reset_index(drop=True)
 
 
 def _render_artist_brief(
@@ -1181,7 +1230,11 @@ def _load_metrics(metrics_path: Path) -> pd.DataFrame:
 
 def _last_refresh_timestamp() -> str:
     """Return a stable last-refresh timestamp from local data and report files."""
-    paths = list((REPO_ROOT / "data" / "synthetic").glob("*.csv")) + list((REPO_ROOT / "reports").glob("*"))
+    paths = (
+        list((REPO_ROOT / "data" / "synthetic").glob("*.csv"))
+        + list((REPO_ROOT / "data" / "raw" / "imported").glob("*.csv"))
+        + list((REPO_ROOT / "reports").glob("*"))
+    )
     existing = [path for path in paths if path.exists()]
     if not existing:
         return "Not available"

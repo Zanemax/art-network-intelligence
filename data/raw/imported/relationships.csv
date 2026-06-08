@@ -1,1 +1,3 @@
 relationship_id,source_node_id,source_node_type,target_node_id,target_node_type,relationship_type,relationship_date,start_date,end_date,source_url,confidence_score,notes
+rel_gallery_maureen_paley_artist_kaye_donachie_represents_0,gallery_maureen_paley,gallery,artist_kaye_donachie,artist,represents,1984-01-01,1984-01-01,,https://www.maureenpaley.com/about,1,
+rel_gallery_voloshyn_gallery_artist_pavlo_kerestey_represents_2,gallery_voloshyn_gallery,gallery,artist_pavlo_kerestey,artist,represents,2016-01-01,2016-01-01,,https://voloshyngallery.art/contact/,1,

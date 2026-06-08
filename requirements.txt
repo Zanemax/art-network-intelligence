@@ -1,4 +1,5 @@
 pandas
+numpy
 networkx
 scikit-learn
 streamlit

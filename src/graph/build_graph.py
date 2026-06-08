@@ -83,26 +83,27 @@ def build_investment_graph(
             record=record,
             cutoff_date=cutoff_date,
         )
-        _add_temporal_edge(
-            graph,
-            source_id=record["curator_id"],
-            target_id=exhibition_id,
-            relationship_type="curated",
-            start_date=record["date"],
-            end_date=record.get("end_date", record["date"]),
-            record=record,
-            cutoff_date=cutoff_date,
-        )
-        _add_temporal_edge(
-            graph,
-            source_id=record["curator_id"],
-            target_id=record["artist_id"],
-            relationship_type="curated_artist",
-            start_date=record["date"],
-            end_date=record.get("end_date", record["date"]),
-            record=record,
-            cutoff_date=cutoff_date,
-        )
+        if record.get("curator_id"):
+            _add_temporal_edge(
+                graph,
+                source_id=record["curator_id"],
+                target_id=exhibition_id,
+                relationship_type="curated",
+                start_date=record["date"],
+                end_date=record.get("end_date", record["date"]),
+                record=record,
+                cutoff_date=cutoff_date,
+            )
+            _add_temporal_edge(
+                graph,
+                source_id=record["curator_id"],
+                target_id=record["artist_id"],
+                relationship_type="curated_artist",
+                start_date=record["date"],
+                end_date=record.get("end_date", record["date"]),
+                record=record,
+                cutoff_date=cutoff_date,
+            )
 
     for record in dataset["acquisitions"].to_dict(orient="records"):
         if not _included_as_of(record["date"], cutoff_date):

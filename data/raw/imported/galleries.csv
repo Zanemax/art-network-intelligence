@@ -1,1 +1,3 @@
 gallery_id,institution_id,canonical_name,city,country,founded_year,prestige_score,source_url,confidence_score,notes
+gallery_maureen_paley,institution_maureen_paley,Maureen Paley,London,United Kingdom,,0.5,https://www.maureenpaley.com/about,1,
+gallery_voloshyn_gallery,institution_voloshyn_gallery,Voloshyn Gallery,Miami,United States,,0.5,https://voloshyngallery.art/contact/,1,

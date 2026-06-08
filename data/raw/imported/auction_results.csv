@@ -1,1 +1,3 @@
 auction_result_id,artist_id,auction_house,sale_name,lot_number,sale_date,work_title,medium,creation_year,estimate_low_usd,estimate_high_usd,price_usd,currency,source_url,confidence_score,notes
+auction_artist_kaye_donachie_36_2024_07_18_1,artist_kaye_donachie,Christie's,The Rosa De La Cruz Collection Online Sale,36,2024-07-18,Squeeky (Is The World As Sad As It Seems),Oil on canvas,2004,3000,5000,8820,USD,https://onlineonly.christies.com/s/rosa-de-la-cruz-collection-online-sale/kaye-donachie-b-1970-36/228376,1,
+auction_artist_pavlo_kerestey_137_2014_12_10_3,artist_pavlo_kerestey,Phillips,Under the Influence,137,2014-12-10,Group Dynamics,Oil on canvas,2013,15694,23541,21653,GBP,https://www.phillips.com/detail/pavlo-kerestey/81963,1,
