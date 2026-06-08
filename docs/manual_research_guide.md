@@ -23,6 +23,47 @@ python -m src.data.import_research_template data/raw/templates/artist_research_t
 
 Normalized CSVs will be written to `data/raw/imported/`.
 
+## Semi-Automated Candidate Workflow
+
+Use this workflow when you want help finding possible observations, but still
+want a human researcher to decide what enters the graph.
+
+1. Add artists to `data/raw/manual/artist_seed_list.csv`.
+2. Generate candidate observations:
+
+```bash
+python -m src.data.research.generate_candidates
+```
+
+3. Review `data/raw/candidates/candidate_observations.csv`.
+4. Set `accepted=yes` only for sourced observations you trust.
+5. Promote accepted rows into manual research format:
+
+```bash
+python -m src.data.research.promote_accepted_candidates
+```
+
+6. Import the promoted manual CSV:
+
+```bash
+python -m src.data.import_research_template data/raw/manual/accepted_artist_research_template.csv
+```
+
+Candidate generation is intentionally conservative. It preserves existing
+review decisions and does not push data into the graph. Promotion is append-only
+by `candidate_id`, so rerunning it will not duplicate already promoted rows.
+
+Candidate rows include two review fields:
+
+- `needs_human_review_reason`: why the row is not safe to ingest automatically.
+- `why_matched`: why the source was matched to the seed artist.
+
+Supported candidate observation types include `artist_profile`,
+`gallery_representation`, `museum_exhibition`, `museum_acquisition`,
+`auction_result`, and `press_mention`. Unclear or likely false Wikidata matches
+are kept as low-confidence `rejected_match` rows for transparency, not promoted
+unless a researcher explicitly changes them and accepts them.
+
 ## Artist Bio
 
 Collect `artist_name`, `birth_year`, `death_year`, `nationality`, `gender`,
