@@ -1,0 +1,70 @@
+{
+  "target": "institutional_success_3y",
+  "train_end_date": "2021-12-31",
+  "test_start_date": "2022-01-01",
+  "feature_columns": [
+    "museum_exhibition_count",
+    "museum_acquisition_count",
+    "major_museum_exhibition_count",
+    "major_museum_acquisition_count",
+    "gallery_prestige_score",
+    "gallery_tier",
+    "collector_degree",
+    "collector_centrality_score",
+    "curator_degree",
+    "curator_centrality_score",
+    "art_fair_count",
+    "auction_lot_count",
+    "auction_median_price",
+    "auction_price_growth_1y",
+    "press_mention_count_1y",
+    "press_mention_growth_1y",
+    "graph_distance_to_major_institution",
+    "graph_distance_to_top_gallery",
+    "career_age_years"
+  ],
+  "models": {
+    "logistic_regression": {
+      "roc_auc": 0.3025210084033614,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0,
+      "average_precision": 0.23648556956827632
+    },
+    "random_forest": {
+      "roc_auc": 0.8823529411764706,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.7142857142857143,
+      "average_precision": 0.9047619047619047
+    },
+    "gradient_boosting": {
+      "roc_auc": 0.9915966386554622,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.7142857142857143,
+      "average_precision": 0.982142857142857
+    },
+    "random_baseline": {
+      "roc_auc": 0.46218487394957986,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0,
+      "average_precision": 0.33412698412698416
+    },
+    "museum_count_baseline": {
+      "roc_auc": 0.45378151260504196,
+      "precision_at_k": 0.4,
+      "recall_at_k": 0.2857142857142857,
+      "average_precision": 0.35714285714285715
+    },
+    "gallery_prestige_baseline": {
+      "roc_auc": 0.8067226890756303,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.7142857142857143,
+      "average_precision": 0.8130952380952381
+    },
+    "simple_weighted_score_baseline": {
+      "roc_auc": 0.7647058823529411,
+      "precision_at_k": 0.6,
+      "recall_at_k": 0.42857142857142855,
+      "average_precision": 0.5870225013082155
+    }
+  }
+}

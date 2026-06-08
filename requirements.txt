@@ -1,0 +1,6 @@
+pandas
+networkx
+scikit-learn
+streamlit
+pytest
+joblib

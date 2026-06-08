@@ -1,0 +1,10 @@
+exhibition_id,artist_id,institution_id,curator_id,date,institution_type
+exh_001,artist_ada_rios,museum_moma,curator_ortiz,2022-04-01,museum
+exh_002,artist_ada_rios,museum_hammer,curator_blake,2023-06-15,museum
+exh_003,artist_mina_park,museum_walker,curator_nguyen,2022-09-10,museum
+exh_004,artist_luca_voss,museum_hammer,curator_blake,2021-05-08,museum
+exh_005,artist_noor_haddad,museum_tate,curator_ortiz,2023-03-21,museum
+exh_006,artist_elias_stone,museum_walker,curator_nguyen,2020-11-11,museum
+exh_007,artist_sana_okoye,museum_hammer,curator_blake,2024-01-30,museum
+exh_008,artist_jules_marin,museum_tate,curator_ortiz,2021-10-18,museum
+exh_009,artist_iris_klein,museum_walker,curator_nguyen,2021-02-14,museum

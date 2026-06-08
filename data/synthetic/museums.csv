@@ -1,0 +1,5 @@
+museum_id,name,tier,prestige_score
+museum_moma,MoMA,top,1.0
+museum_tate,Tate Modern,top,0.97
+museum_hammer,Hammer Museum,mid,0.78
+museum_walker,Walker Art Center,mid,0.76

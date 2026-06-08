@@ -1,0 +1,8 @@
+acquisition_id,artist_id,museum_id,date,value_usd
+acq_001,artist_ada_rios,museum_moma,2023-01-20,180000
+acq_002,artist_ada_rios,museum_hammer,2024-02-12,95000
+acq_003,artist_mina_park,museum_walker,2023-07-05,70000
+acq_004,artist_noor_haddad,museum_tate,2024-03-03,160000
+acq_005,artist_sana_okoye,museum_hammer,2024-04-22,52000
+acq_006,artist_jules_marin,museum_tate,2022-06-30,115000
+acq_007,artist_iris_klein,museum_walker,2021-12-01,85000
