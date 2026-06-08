@@ -20,6 +20,11 @@ and muted institutional accents that fit an investor-grade art workflow.
   --ani-danger: #884339;
   --ani-shadow: 0 14px 36px rgba(24, 23, 22, 0.08);
   --ani-radius: 8px;
+  --ani-space-1: 0.5rem;
+  --ani-space-2: 0.75rem;
+  --ani-space-3: 1rem;
+  --ani-space-4: 1.35rem;
+  --ani-space-5: 1.75rem;
   --ani-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ani-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
@@ -96,8 +101,35 @@ header[data-testid="stHeader"] [data-testid="stToolbar"] a[href*="streamlit.io/c
 
 .block-container {
   padding-top: 1.35rem;
+  padding-left: 2.25rem;
+  padding-right: 2.25rem;
   padding-bottom: 3rem;
   max-width: 1440px;
+}
+
+/*
+Streamlit columns default to a tight visual rhythm. The app uses cards as
+primary decision objects, so we give horizontal blocks enough gutter space
+to prevent neighboring cards and controls from feeling fused together.
+*/
+[data-testid="stHorizontalBlock"] {
+  gap: var(--ani-space-4) !important;
+}
+
+[data-testid="column"] {
+  min-width: 0;
+}
+
+[data-testid="column"] > div {
+  min-width: 0;
+}
+
+[data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {
+  margin-bottom: var(--ani-space-3);
+}
+
+[data-testid="stVerticalBlock"] > [data-testid="stMarkdownContainer"] + [data-testid="stHorizontalBlock"] {
+  margin-top: var(--ani-space-2);
 }
 
 [data-testid="stSidebar"] {
@@ -210,7 +242,7 @@ h3 {
   display: flex;
   gap: 1.25rem;
   justify-content: space-between;
-  margin-bottom: 1.35rem;
+  margin-bottom: var(--ani-space-5);
   padding-bottom: 1rem;
 }
 
@@ -291,6 +323,7 @@ h3 {
 
 .ani-score-card {
   border-left: 3px solid var(--ani-accent);
+  height: 100%;
   min-height: 132px;
 }
 
@@ -299,6 +332,7 @@ h3 {
   border: 1px solid var(--ani-border);
   border-radius: var(--ani-radius);
   box-shadow: var(--ani-shadow);
+  height: 100%;
   min-height: 148px;
   padding: 1.05rem 1.1rem;
 }
@@ -403,7 +437,7 @@ h3 {
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
-  margin: 1.25rem 0 0.55rem;
+  margin: var(--ani-space-5) 0 var(--ani-space-2);
 }
 
 .ani-section-heading h2 {
@@ -433,8 +467,8 @@ h3 {
 
 .ani-card-grid {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--ani-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .ani-evidence-card {
@@ -442,6 +476,7 @@ h3 {
   border: 1px solid var(--ani-border);
   border-left: 3px solid var(--ani-border-strong);
   border-radius: var(--ani-radius);
+  height: 100%;
   min-height: 112px;
   padding: 0.85rem;
 }
@@ -477,7 +512,7 @@ h3 {
 
 .ani-relationship-list {
   display: grid;
-  gap: 0.6rem;
+  gap: var(--ani-space-2);
 }
 
 .ani-relationship-card {
@@ -565,6 +600,15 @@ h3 {
   overflow: hidden;
 }
 
+.ani-graph-shell,
+.stDataFrame,
+[data-testid="stDataFrame"],
+.ani-note-box,
+.ani-warning-box,
+.ani-empty-state {
+  margin-bottom: var(--ani-space-3);
+}
+
 .ani-graph-toolbar {
   align-items: center;
   border-bottom: 1px solid var(--ani-border);
@@ -618,6 +662,15 @@ h3 {
   padding: 0.9rem 1rem;
 }
 
+.stTextInput,
+.stSelectbox,
+.stMultiSelect,
+.stSlider,
+.stNumberInput,
+.stRadio {
+  margin-bottom: var(--ani-space-2);
+}
+
 [data-testid="stMetricLabel"] {
   color: var(--ani-muted);
   font-size: 0.78rem;
@@ -649,4 +702,24 @@ h3 {
   background: var(--ani-surface);
   border: 1px solid var(--ani-border);
   border-radius: var(--ani-radius);
+}
+
+@media (max-width: 900px) {
+  .block-container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  [data-testid="stHorizontalBlock"] {
+    gap: var(--ani-space-3) !important;
+  }
+
+  .ani-top-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ani-refresh {
+    text-align: left;
+  }
 }

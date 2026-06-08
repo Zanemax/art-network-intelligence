@@ -24,14 +24,32 @@ NODE_COLORS = {
 }
 
 EDGE_LABELS = {
-    "represents": "represented_by",
-    "included_in": "exhibited_at",
-    "hosted_by": "exhibited_at",
-    "acquired_artist": "acquired_by",
-    "acquired_work_by": "acquired_by",
-    "collects": "collected_by",
-    "curated_artist": "curated_by",
-    "curated": "curated_by",
+    "represents": "Represented by",
+    "included_in": "Exhibited at",
+    "hosted_by": "Hosted by",
+    "acquired_artist": "Acquired by",
+    "acquired_work_by": "Acquired by",
+    "collects": "Collected by",
+    "curated_artist": "Curated by",
+    "curated": "Curated by",
+    "has_auction_result": "Auction result",
+    "mentioned_in_press": "Press mention",
+    "made_acquisition": "Acquisition",
+}
+
+NODE_TYPE_LABELS = {
+    "artist": "Artist",
+    "gallery": "Gallery",
+    "museum": "Museum",
+    "collector": "Collector",
+    "curator": "Curator",
+    "exhibition": "Exhibition",
+    "acquisition": "Acquisition",
+    "auction_result": "Auction result",
+    "press_mentions": "Press mention",
+    "institution": "Institution",
+    "artwork": "Artwork",
+    "genre": "Genre",
 }
 
 SIGNAL_WEIGHTS = {
@@ -190,7 +208,7 @@ def render_graph_view(
             f"""
             <g class="ani-graph-node">
               <circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="{stroke}" stroke-width="{stroke_width}">
-                <title>{_escape(name)} | {_escape(node_type)} | {_escape(node_id)}</title>
+                <title>{_escape(name)} | {_escape(node_type_display_label(node_type))} | {_escape(node_id)}</title>
               </circle>
               <text x="{x:.1f}" y="{(y + radius + 15):.1f}" text-anchor="middle">{_escape(_short_label(name))}</text>
             </g>
@@ -355,7 +373,25 @@ def _edge_signal_score(edge: tuple[str, str, dict[str, object]]) -> float:
 
 def _edge_display_label(relationship_type: str) -> str:
     """Map internal relationship names to collector-facing labels."""
-    return EDGE_LABELS.get(relationship_type, relationship_type)
+    return relationship_display_label(relationship_type)
+
+
+def relationship_display_label(relationship_type: str) -> str:
+    """Map internal relationship names to collector-facing labels."""
+    return EDGE_LABELS.get(relationship_type, humanize_identifier(relationship_type))
+
+
+def node_type_display_label(node_type: str) -> str:
+    """Map internal node types to collector-facing labels."""
+    return NODE_TYPE_LABELS.get(node_type, humanize_identifier(node_type))
+
+
+def humanize_identifier(value: object) -> str:
+    """Return readable text for an internal identifier."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text.replace("_", " ").title()
 
 
 def _closest_node_by_type(graph: nx.MultiDiGraph, artist_id: str, node_type: str) -> str:

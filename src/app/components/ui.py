@@ -227,6 +227,14 @@ def table_label(label: str) -> None:
     render_html(f'<div class="ani-table-label">{escape(label)}</div>')
 
 
+def display_identifier(value: object) -> str:
+    """Return readable text for an internal identifier."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text.replace("_", " ").title()
+
+
 def render_interactive_graph(
     graph: nx.MultiDiGraph,
     selected_node: str | None = None,
@@ -257,7 +265,7 @@ def render_interactive_graph(
     for source, target, edge_data in visible_edges:
         x1, y1 = normalized[source]
         x2, y2 = normalized[target]
-        relationship = str(edge_data.get("relationship_type", "relationship"))
+        relationship = display_identifier(edge_data.get("relationship_type", "relationship"))
         confidence = float(edge_data.get("confidence_score", 0.0) or 0.0)
         edge_markup.append(
             f"""
@@ -282,7 +290,7 @@ def render_interactive_graph(
             f"""
             <g class="ani-graph-node">
               <circle cx="{x:.1f}" cy="{y:.1f}" r="{radius}" fill="{color}" stroke="{stroke}" stroke-width="2">
-                <title>{escape(name)} | {escape(node_type)} | {escape(node_id)}</title>
+                <title>{escape(name)} | {escape(display_identifier(node_type))} | {escape(node_id)}</title>
               </circle>
               <text x="{x:.1f}" y="{label_y:.1f}" text-anchor="middle">{escape(_short_label(name))}</text>
             </g>

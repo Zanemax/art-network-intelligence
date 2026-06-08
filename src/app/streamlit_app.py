@@ -37,6 +37,9 @@ from src.app.components.graph_view import (  # noqa: E402
     get_artist_ego_network,
     graph_signal_summary,
     highlighted_evidence_nodes,
+    humanize_identifier,
+    node_type_display_label,
+    relationship_display_label,
     render_graph_view,
 )
 from src.data.quality import LOW_QUALITY_WARNING, calculate_data_quality  # noqa: E402
@@ -233,7 +236,7 @@ def _render_artist_brief(
     with profile_graph_cols[0]:
         render_graph_view(ego_graph, selected_node=artist_id, highlighted_nodes=highlights, max_edges=28, height=520)
     with profile_graph_cols[1]:
-        st.dataframe(graph_signal_summary(ego_graph, artist_id), width="stretch", hide_index=True)
+        _show_table(graph_signal_summary(ego_graph, artist_id))
         table_label("Highlight key")
         st.markdown(
             f"{pill('current gallery', 'neutral')} {pill('museums', 'success')} "
@@ -246,7 +249,7 @@ def _render_artist_brief(
     if comparables.empty:
         empty_state("No comparable artists available", "Add richer artist histories to generate comparable trajectories.")
     else:
-        st.dataframe(comparables, width="stretch", hide_index=True)
+        _show_table(comparables)
 
 
 def _render_evidence(
@@ -281,7 +284,7 @@ def _render_evidence(
         section_heading("Cautions", "Reasons to keep researching")
         driver_list(explanation.top_negative_drivers, empty_text="No major negative drivers in the current feature view.")
         section_heading("Data Quality", "Can this score be trusted?")
-        st.dataframe(_quality_summary(artist_quality), width="stretch", hide_index=True)
+        _show_table(_quality_summary(artist_quality))
         if explanation.data_quality_warning:
             note_box(explanation.data_quality_warning, warning=True)
     with right:
@@ -319,15 +322,13 @@ def _render_comparables(
             )
 
     section_heading("Succeeded Or Failed?", "Later outcomes attached to each comparable")
-    st.dataframe(_comparables_table(similar), width="stretch", hide_index=True)
+    _show_table(_comparables_table(similar))
 
     section_heading("Why They Are Comparable", "Shared signals, not visual similarity")
-    st.dataframe(
+    _show_table(
         similar[["artist_name", "shared_signals"]].rename(
             columns={"artist_name": "artist", "shared_signals": "shared_signals"}
-        ),
-        width="stretch",
-        hide_index=True,
+        )
     )
 
     section_heading("Side-By-Side Signals", f"Point-in-time features as of {as_of_date}")
@@ -349,7 +350,7 @@ def _render_comparables(
         "press_mention_growth_1y",
         "graph_distance_to_major_institution",
     ]
-    st.dataframe(side_by_side[display_columns], width="stretch", hide_index=True)
+    _show_table(side_by_side[display_columns])
 
 
 def _render_taste_graph_explorer(
@@ -367,16 +368,27 @@ def _render_taste_graph_explorer(
     selected_artist_id = str(selected["artist_id"])
     default_entity_index = list(entity_options.values()).index(selected_artist_id) if selected_artist_id in entity_options.values() else 0
 
-    filter_cols = st.columns([0.23, 0.25, 0.15, 0.14, 0.13, 0.10])
+    filter_cols = st.columns([0.34, 0.38, 0.28])
     selected_entity_label = filter_cols[0].selectbox("Search artist/entity", entity_options, index=default_entity_index)
     selected_node_id = entity_options[selected_entity_label]
     default_node_types = [node_type for node_type in node_types if node_type in DEFAULT_GRAPH_NODE_TYPES]
     default_relationships = [relationship for relationship in relationship_types if relationship in SIGNAL_TYPES]
-    selected_node_types = filter_cols[1].multiselect("Node type", node_types, default=default_node_types)
-    selected_relationships = filter_cols[2].multiselect("Relationship", relationship_types, default=default_relationships)
-    min_confidence = filter_cols[3].slider("Confidence", 0.0, 1.0, 0.0, 0.05)
-    cutoff = filter_cols[4].text_input("Date cutoff", value=as_of_date)
-    max_nodes = filter_cols[5].number_input("Max nodes", min_value=10, max_value=80, value=25, step=5)
+    selected_node_types = filter_cols[1].multiselect(
+        "Node type",
+        node_types,
+        default=default_node_types,
+        format_func=node_type_display_label,
+    )
+    selected_relationships = filter_cols[2].multiselect(
+        "Relationship",
+        relationship_types,
+        default=default_relationships,
+        format_func=relationship_display_label,
+    )
+    threshold_cols = st.columns([0.34, 0.33, 0.33])
+    min_confidence = threshold_cols[0].slider("Confidence", 0.0, 1.0, 0.0, 0.05)
+    cutoff = threshold_cols[1].text_input("Date cutoff", value=as_of_date)
+    max_nodes = threshold_cols[2].number_input("Max nodes", min_value=10, max_value=80, value=25, step=5)
 
     mode = st.radio("Graph mode", ["Ego-network", "Full network"], horizontal=True)
     filtered = filter_graph_by_confidence(filter_graph_by_date(graph, cutoff), min_confidence)
@@ -409,7 +421,7 @@ def _render_taste_graph_explorer(
         )
     with graph_cols[1]:
         section_heading("Selected Node", "Entity detail panel")
-        st.dataframe(_selected_node_detail(graph, selected_node_id), width="stretch", hide_index=True)
+        _show_table(_selected_node_detail(graph, selected_node_id))
         section_heading("Relationships", "Filtered evidence touching selected node")
         relationship_cards(_selected_node_relationships(visible_graph, selected_node_id), limit=8)
 
@@ -439,18 +451,18 @@ def _render_dashboard(
     with left:
         section_heading("Recent Artist Momentum", "Ranked by current model score")
         momentum = _top_artist_table(predictions, quality)
-        st.dataframe(momentum, width="stretch", hide_index=True)
+        _show_table(momentum)
 
         section_heading("Top Emerging Artists", "Institutional and market indicators")
         emerging = _emerging_artist_table(dataset, graph, predictions, as_of_date)
-        st.dataframe(emerging, width="stretch", hide_index=True)
+        _show_table(emerging)
 
     with right:
         section_heading("Prediction Distribution", "Probability bands")
         st.bar_chart(_prediction_distribution(predictions), x="score_band", y="artist_count", height=250)
 
         section_heading("Institutional Activity Feed", "Latest visible events")
-        st.dataframe(_institutional_feed(graph, limit=8), width="stretch", hide_index=True)
+        _show_table(_institutional_feed(graph, limit=8))
 
 
 def _render_artist_profile(
@@ -508,18 +520,16 @@ def _render_artist_profile(
         driver_list(explanation.top_negative_drivers, empty_text="No major negative drivers in the current feature view.")
     with center:
         section_heading("Career Timeline", f"As of {as_of_date}")
-        st.dataframe(_artist_timeline(graph, artist_id, as_of_date).head(12), width="stretch", hide_index=True)
+        _show_table(_artist_timeline(graph, artist_id, as_of_date).head(12))
     with right:
         section_heading("Network Summary", "Collector, curator, and institution proximity")
-        st.dataframe(_network_summary(feature_row), width="stretch")
+        _show_table(_network_summary(feature_row))
         section_heading("Data Quality Indicators", "Coverage and confidence")
-        st.dataframe(_quality_summary(artist_quality), width="stretch", hide_index=True)
+        _show_table(_quality_summary(artist_quality))
 
     section_heading("Similar Artists", "Career trajectory and graph-derived feature match")
-    st.dataframe(
+    _show_table(
         similar[["artist_name", "similarity_score", "later_outcome_summary", "shared_signals"]],
-        width="stretch",
-        hide_index=True,
     )
 
     section_heading("Relationship Network", "Highlighted ego-network")
@@ -561,15 +571,13 @@ def _render_similar_artists(
             "gallery_success_3y",
         ]
     ]
-    st.dataframe(comparison, width="stretch", hide_index=True)
+    _show_table(comparison)
 
     section_heading("Shared Characteristics", "Closest normalized feature values")
-    st.dataframe(
+    _show_table(
         similar[["artist_name", "shared_signals"]].rename(
             columns={"artist_name": "artist", "shared_signals": "shared_characteristics"}
-        ),
-        width="stretch",
-        hide_index=True,
+        )
     )
 
     section_heading("Side-by-Side Feature Comparison", f"As of {as_of_date}")
@@ -580,7 +588,7 @@ def _render_similar_artists(
         on="artist_id",
         how="left",
     )
-    st.dataframe(side_by_side, width="stretch", hide_index=True)
+    _show_table(side_by_side)
 
 
 def _render_graph_explorer(graph: nx.MultiDiGraph, selected_artist_id: str) -> None:
@@ -590,8 +598,13 @@ def _render_graph_explorer(graph: nx.MultiDiGraph, selected_artist_id: str) -> N
     relationship_types = sorted({str(data.get("relationship_type", "unknown")) for _, _, data in graph.edges(data=True)})
 
     filters = st.columns([0.24, 0.28, 0.18, 0.18, 0.12])
-    selected_node_types = filters[0].multiselect("Node type", node_types, default=node_types)
-    selected_relationships = filters[1].multiselect("Relationship type", relationship_types, default=relationship_types)
+    selected_node_types = filters[0].multiselect("Node type", node_types, default=node_types, format_func=node_type_display_label)
+    selected_relationships = filters[1].multiselect(
+        "Relationship type",
+        relationship_types,
+        default=relationship_types,
+        format_func=relationship_display_label,
+    )
     cutoff = filters[2].text_input("Date cutoff", value="2024-12-31")
     min_confidence = filters[3].slider("Min confidence", 0.0, 1.0, 0.0, 0.05)
     highlight_ego = filters[4].checkbox("Ego", value=True, help="Highlight selected artist ego-network")
@@ -613,9 +626,9 @@ def _render_graph_explorer(graph: nx.MultiDiGraph, selected_artist_id: str) -> N
     with right:
         section_heading("Selection Panel", "Filtered network context")
         selected_data = graph.nodes[selected_artist_id] if selected_artist_id in graph.nodes else {}
-        render_pill(str(selected_data.get("node_type", "artist")).title(), "neutral")
+        render_pill(node_type_display_label(str(selected_data.get("node_type", "artist"))), "neutral")
         st.markdown(f"### {selected_data.get('name', selected_artist_id)}")
-        st.dataframe(_selected_node_relationships(filtered, selected_artist_id), width="stretch", hide_index=True)
+        _show_table(_selected_node_relationships(filtered, selected_artist_id))
 
 
 def _render_model_performance() -> None:
@@ -636,18 +649,18 @@ def _render_model_performance() -> None:
         cols[2].metric("Recall at K", f"{float(best.get('recall_at_k', 0)):.2f}")
         cols[3].metric("Average Precision", f"{float(best.get('average_precision', 0)):.2f}")
         section_heading("Model Comparison", "Temporal holdout metrics and baselines")
-        st.dataframe(metrics, width="stretch", hide_index=True)
+        _show_table(metrics)
         chart_metrics = metrics[["model", "roc_auc", "average_precision"]].set_index("model")
         st.bar_chart(chart_metrics, height=280)
 
     if backtest_path.exists():
         backtests = pd.read_csv(backtest_path)
         section_heading("Backtest Performance", "Annual point-in-time tests")
-        st.dataframe(backtests, width="stretch", hide_index=True)
+        _show_table(backtests)
 
     if predictions_path.exists():
         section_heading("Saved Predictions", "Most recent training output")
-        st.dataframe(pd.read_csv(predictions_path).head(100), width="stretch", hide_index=True)
+        _show_table(pd.read_csv(predictions_path).head(100))
 
 
 def _render_data_quality(dataset: dict[str, pd.DataFrame], graph: nx.MultiDiGraph, quality: pd.DataFrame) -> None:
@@ -668,26 +681,24 @@ def _render_data_quality(dataset: dict[str, pd.DataFrame], graph: nx.MultiDiGrap
     if issue_count:
         warning_rows = [(name, "; ".join(errors)) for name, errors in template_results.items() if errors]
         note_box("Validation warnings require review before using real-data predictions.", warning=True)
-        st.dataframe(pd.DataFrame(warning_rows, columns=["file", "issues"]), width="stretch", hide_index=True)
+        _show_table(pd.DataFrame(warning_rows, columns=["file", "issues"]))
     else:
         note_box("Raw CSV templates match the registered schemas.")
 
     left, right = st.columns(2)
     with left:
         section_heading("Coverage Metrics", "Rows by table")
-        st.dataframe(
+        _show_table(
             pd.DataFrame({"table": list(dataset), "rows": [len(frame) for frame in dataset.values()]}),
-            width="stretch",
-            hide_index=True,
         )
         section_heading("Missing Data Indicators", "Artist and relationship checks")
-        st.dataframe(quality, width="stretch", hide_index=True)
+        _show_table(quality)
     with right:
         section_heading("Confidence Score Distribution", "Relationship source confidence")
         confidence_bins = pd.cut(edge_confidence, bins=[0, 0.5, 0.7, 0.85, 1.0], include_lowest=True).value_counts().sort_index()
         st.bar_chart(confidence_bins.rename_axis("confidence_band").reset_index(name="relationship_count"), x="confidence_band", y="relationship_count", height=260)
         section_heading("Data Source Statistics", "Evidence depth")
-        st.dataframe(_source_statistics(graph), width="stretch", hide_index=True)
+        _show_table(_source_statistics(graph))
 
     poor_artists = quality[
         (quality["entity_type"] == "artist")
@@ -716,21 +727,21 @@ def _render_profile_expanders(
     """Render detailed artist evidence tables in expandable sections."""
     with st.expander("Exhibitions", expanded=False):
         table_label("Museum and exhibition evidence")
-        st.dataframe(_artist_events(dataset.get("exhibitions", pd.DataFrame()), artist_id, "date", as_of_date), width="stretch", hide_index=True)
+        _show_table(_artist_events(dataset.get("exhibitions", pd.DataFrame()), artist_id, "date", as_of_date))
     with st.expander("Acquisitions", expanded=False):
         table_label("Museum acquisition evidence")
-        st.dataframe(_artist_events(dataset.get("acquisitions", pd.DataFrame()), artist_id, "date", as_of_date), width="stretch", hide_index=True)
+        _show_table(_artist_events(dataset.get("acquisitions", pd.DataFrame()), artist_id, "date", as_of_date))
     with st.expander("Auction history", expanded=False):
         table_label("Auction price history")
-        st.dataframe(_artist_events(dataset.get("auction_results", pd.DataFrame()), artist_id, "sale_date", as_of_date), width="stretch", hide_index=True)
+        _show_table(_artist_events(dataset.get("auction_results", pd.DataFrame()), artist_id, "sale_date", as_of_date))
     with st.expander("Press coverage", expanded=False):
         table_label("Press mention history")
         press = dataset.get("press_mentions", pd.DataFrame())
         rows = press[press["artist_id"] == artist_id].sort_values("year", ascending=False) if not press.empty else press
-        st.dataframe(rows, width="stretch", hide_index=True)
+        _show_table(rows)
     with st.expander("Relationship network", expanded=False):
         table_label("Timestamped graph relationships")
-        st.dataframe(_artist_timeline(graph, artist_id, as_of_date), width="stretch", hide_index=True)
+        _show_table(_artist_timeline(graph, artist_id, as_of_date))
 
 
 def _artist_context(
@@ -886,6 +897,36 @@ def _clamp_probability(value: float) -> float:
     return max(0.01, min(0.99, float(value)))
 
 
+def _show_table(frame: pd.DataFrame, *, hide_index: bool = True, width: str = "stretch") -> None:
+    """Render a dataframe with collector-facing labels instead of internal field names."""
+    st.dataframe(_display_frame(frame), width=width, hide_index=hide_index)
+
+
+def _display_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of a table with readable column names and category values."""
+    if frame is None:
+        return pd.DataFrame()
+    display = frame.copy()
+    for column in display.columns:
+        if column in {"relationship", "relationship_type"}:
+            display[column] = display[column].map(relationship_display_label)
+        elif column in {"node_type", "counterparty_type", "entity_type"}:
+            display[column] = display[column].map(node_type_display_label)
+        elif column in {"field", "indicator", "direction", "signal", "metric", "table", "model", "target"}:
+            display[column] = display[column].map(humanize_identifier)
+        elif column == "shared_signals":
+            display[column] = display[column].map(_humanize_signal_text)
+    display = display.rename(columns={column: humanize_identifier(column) for column in display.columns})
+    return display
+
+
+def _humanize_signal_text(value: object) -> str:
+    """Make feature-signal prose readable without changing source data."""
+    if pd.isna(value):
+        return ""
+    return str(value).replace("_", " ")
+
+
 def _current_gallery(graph: nx.MultiDiGraph, artist_id: str, as_of_date: str) -> str:
     """Return current gallery representation as of a date."""
     cutoff = pd.Timestamp(as_of_date)
@@ -920,9 +961,9 @@ def _artist_timeline(graph: nx.MultiDiGraph, artist_id: str, as_of_date: str) ->
         rows.append(
             {
                 "date": event_date.strftime("%Y-%m-%d"),
-                "relationship": edge_data.get("relationship_type"),
+                "relationship": relationship_display_label(str(edge_data.get("relationship_type"))),
                 "counterparty": other_data.get("name") or other_data.get("title") or other_id,
-                "counterparty_type": other_data.get("node_type"),
+                "counterparty_type": node_type_display_label(str(other_data.get("node_type"))),
                 "confidence": float(edge_data.get("confidence_score", 0)),
             }
         )
@@ -968,7 +1009,7 @@ def _artist_quality_row(quality: pd.DataFrame, artist_id: str) -> pd.Series | No
 def _artist_options(predictions: pd.DataFrame) -> dict[str, str]:
     """Return display labels mapped to stable artist IDs."""
     return {
-        f"{row['name']}  ·  {row['artist_id']}": str(row["artist_id"])
+        str(row["name"]): str(row["artist_id"])
         for _, row in predictions.sort_values("name").iterrows()
     }
 
@@ -1035,7 +1076,7 @@ def _institutional_feed(graph: nx.MultiDiGraph, limit: int = 8) -> pd.DataFrame:
         rows.append(
             {
                 "date": data.get("start_date"),
-                "relationship": data.get("relationship_type"),
+                "relationship": relationship_display_label(str(data.get("relationship_type"))),
                 "source": source_data.get("name") or source_data.get("title") or source,
                 "target": target_data.get("name") or target_data.get("title") or target,
                 "confidence": float(data.get("confidence_score", 0)),
@@ -1056,7 +1097,12 @@ def _network_summary(feature_row: pd.Series) -> pd.DataFrame:
         "graph_distance_to_major_institution",
         "graph_distance_to_top_gallery",
     ]
-    return feature_row[metrics].to_frame("value")
+    return pd.DataFrame(
+        {
+            "metric": metrics,
+            "value": [feature_row.get(metric) for metric in metrics],
+        }
+    )
 
 
 def _quality_summary(quality_row: pd.Series | None) -> pd.DataFrame:
@@ -1138,7 +1184,7 @@ def _entity_options(graph: nx.MultiDiGraph) -> dict[str, str]:
     for node_id, data in sorted(graph.nodes(data=True), key=lambda item: str(item[1].get("name") or item[1].get("title") or item[0])):
         node_type = str(data.get("node_type", "unknown"))
         label = data.get("name") or data.get("title") or node_id
-        labels[f"{label}  ·  {node_type}"] = node_id
+        labels[f"{label}  ·  {node_type_display_label(node_type)}"] = node_id
     return labels
 
 
@@ -1182,9 +1228,9 @@ def _selected_node_detail(graph: nx.MultiDiGraph, node_id: str) -> pd.DataFrame:
         return pd.DataFrame([{"field": "node", "value": "Not found"}])
     data = graph.nodes[node_id]
     fields = ["node_type", "name", "title", "region", "tier", "prestige_score", "birth_year"]
-    rows = [{"field": "node_id", "value": node_id}]
+    rows = [{"field": "node", "value": node_id}]
     rows.extend(
-        {"field": field, "value": data.get(field)}
+        {"field": field, "value": node_type_display_label(str(data.get(field))) if field == "node_type" else data.get(field)}
         for field in fields
         if field in data and pd.notna(data.get(field))
     )
@@ -1195,8 +1241,8 @@ def _relationship_row(graph: nx.MultiDiGraph, direction: str, counterparty_id: s
     """Create a table row for one graph relationship."""
     counterparty = graph.nodes[counterparty_id]
     return {
-        "direction": direction,
-        "relationship": data.get("relationship_type"),
+        "direction": humanize_identifier(direction),
+        "relationship": relationship_display_label(str(data.get("relationship_type"))),
         "counterparty": counterparty.get("name") or counterparty.get("title") or counterparty_id,
         "date": data.get("start_date"),
         "confidence": float(data.get("confidence_score", 0)),
@@ -1209,7 +1255,7 @@ def _source_statistics(graph: nx.MultiDiGraph) -> pd.DataFrame:
     for _, _, data in graph.edges(data=True):
         rows.append(
             {
-                "relationship_type": data.get("relationship_type", "unknown"),
+                "relationship_type": relationship_display_label(str(data.get("relationship_type", "unknown"))),
                 "source_url": data.get("source_url", ""),
                 "confidence": float(data.get("confidence_score", 0)),
             }
