@@ -1,5 +1,5 @@
 /*
-Design system for the Art Network Intelligence Streamlit product demo.
+Design system for the Free Exchange Intelligence Streamlit product demo.
 The palette is deliberately restrained: warm neutral surfaces, deep ink,
 and muted institutional accents that fit an investor-grade art workflow.
 */
@@ -141,7 +141,7 @@ to prevent neighboring cards and controls from feeling fused together.
 [data-testid="stSidebar"] > div:first-child {
   background: var(--ani-surface);
   border-right: 1px solid var(--ani-border);
-  padding-top: 1rem;
+  padding-top: 1.35rem;
 }
 
 [data-testid="stSidebarNav"],
@@ -152,8 +152,18 @@ to prevent neighboring cards and controls from feeling fused together.
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 [data-testid="stSidebar"] label {
   color: var(--ani-muted);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   letter-spacing: 0;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h4 {
+  color: var(--ani-ink);
+  font-family: var(--ani-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 1.45rem 0 0.55rem;
+  text-transform: uppercase;
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] {
@@ -162,12 +172,12 @@ to prevent neighboring cards and controls from feeling fused together.
   border-radius: var(--ani-radius);
   display: grid;
   gap: 0.2rem;
-  padding: 0.35rem;
+  padding: 0.28rem;
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] label {
   border-radius: 6px;
-  padding: 0.3rem 0.4rem;
+  padding: 0.24rem 0.34rem;
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] label:hover {
@@ -198,52 +208,75 @@ h3 {
 
 .ani-sidebar-brand {
   border-bottom: 1px solid var(--ani-border);
-  margin: 0.4rem 0 1.2rem;
-  padding: 0.2rem 0 1rem;
+  margin: 0.2rem 0 1.15rem;
+  padding: 0.15rem 0 0.95rem;
 }
 
-.ani-logo-row {
-  align-items: center;
-  display: flex;
-  gap: 0.75rem;
+.ani-brand-stack {
+  align-items: flex-start;
+  display: grid;
+  gap: 0;
+  justify-items: start;
 }
 
 .ani-logo-mark {
   align-items: center;
   background: var(--ani-ink);
+  border: 1px solid var(--ani-ink);
   border-radius: 6px;
   color: var(--ani-surface);
   display: inline-flex;
   font-family: var(--ani-mono);
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 700;
-  height: 32px;
+  height: 34px;
   justify-content: center;
   letter-spacing: 0.08em;
-  width: 32px;
+  line-height: 1;
+  margin-bottom: 0.72rem;
+  padding: 0;
+  width: 42px;
+}
+
+.ani-logo-image {
+  border: 1px solid var(--ani-border-strong);
+  border-radius: 8px;
+  display: block;
+  height: 122px;
+  margin-bottom: 1.2rem;
+  object-fit: contain;
+  padding: 10px;
+  width: 122px;
 }
 
 .ani-brand-title {
   color: var(--ani-ink);
-  font-size: 0.93rem;
-  font-weight: 650;
-  line-height: 1.1;
+  font-family: var(--ani-font);
+  font-size: 0.74rem;
+  font-weight: 720;
+  letter-spacing: 0.07em;
+  line-height: 1.24;
+  max-width: 230px;
+  text-transform: uppercase;
 }
 
 .ani-brand-subtitle {
   color: var(--ani-muted);
-  font-size: 0.73rem;
-  margin-top: 0.15rem;
+  font-family: var(--ani-font);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin-top: 0.42rem;
+  max-width: 185px;
 }
 
 .ani-top-header {
-  align-items: center;
+  align-items: flex-end;
   border-bottom: 1px solid var(--ani-border);
   display: flex;
-  gap: 1.25rem;
+  gap: 1.5rem;
   justify-content: space-between;
-  margin-bottom: var(--ani-space-5);
-  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.2rem;
 }
 
 .ani-page-kicker {
@@ -722,4 +755,5 @@ h3 {
   .ani-refresh {
     text-align: left;
   }
+
 }

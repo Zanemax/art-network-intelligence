@@ -13,6 +13,8 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+from src.app.branding import PRODUCT_NAME, SHORT_NAME, TAGLINE
+
 
 STYLE_PATH = Path(__file__).resolve().parents[1] / "styles.css"
 
@@ -43,16 +45,15 @@ def render_html(markup: str) -> None:
 
 def render_sidebar_brand() -> None:
     """Render a polished product brand block in the sidebar."""
+    mark = _logo_markup()
     st.sidebar.markdown(
         textwrap.dedent(
-            """
+            f"""
         <div class="ani-sidebar-brand">
-          <div class="ani-logo-row">
-            <div class="ani-logo-mark">ANI</div>
-            <div>
-              <div class="ani-brand-title">Art Network Intelligence</div>
-              <div class="ani-brand-subtitle">Taste graph investment research</div>
-            </div>
+          <div class="ani-brand-stack">
+            {mark}
+            <div class="ani-brand-title">{escape(PRODUCT_NAME)}</div>
+            <div class="ani-brand-subtitle">{escape(TAGLINE)}</div>
           </div>
         </div>
         """
@@ -67,7 +68,7 @@ def render_header(title: str, subtitle: str, refresh_timestamp: str) -> None:
         f"""
         <div class="ani-top-header">
           <div>
-            <div class="ani-page-kicker">Product demo</div>
+            <div class="ani-page-kicker">{escape(PRODUCT_NAME)}</div>
             <div class="ani-page-title">{escape(title)}</div>
             <div class="ani-page-subtitle">{escape(subtitle)}</div>
           </div>
@@ -225,6 +226,11 @@ def driver_list(items: Iterable[str], empty_text: str = "No material signals ava
 def table_label(label: str) -> None:
     """Render a small table label."""
     render_html(f'<div class="ani-table-label">{escape(label)}</div>')
+
+
+def _logo_markup() -> str:
+    """Return a high-impact sidebar wordmark."""
+    return f'<div class="ani-logo-mark" aria-label="{escape(PRODUCT_NAME)}">{escape(SHORT_NAME)}</div>'
 
 
 def display_identifier(value: object) -> str:

@@ -1,4 +1,4 @@
-"""Premium Streamlit MVP product demo for Art Network Intelligence."""
+"""Premium Streamlit MVP product demo for Free Exchange Intelligence."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.app.branding import FAVICON_PATH, PRODUCT_NAME, SHORT_NAME, TAGLINE, existing_asset  # noqa: E402
 from src.app.components.ui import (  # noqa: E402
     driver_list,
     empty_state,
@@ -66,7 +67,15 @@ DEFAULT_GRAPH_NODE_TYPES = {"artist", "gallery", "museum", "collector", "curator
 
 def main() -> None:
     """Render the commercial-style product demo."""
-    st.set_page_config(page_title="Art Network Intelligence", layout="wide", initial_sidebar_state="expanded")
+    page_config = {
+        "page_title": PRODUCT_NAME,
+        "layout": "wide",
+        "initial_sidebar_state": "expanded",
+    }
+    favicon = existing_asset(FAVICON_PATH)
+    if favicon:
+        page_config["page_icon"] = favicon
+    st.set_page_config(**page_config)
     load_design_system()
 
     render_sidebar_brand()
@@ -89,8 +98,8 @@ def main() -> None:
     page = st.sidebar.radio("Navigation", PAGES, label_visibility="collapsed")
 
     render_header(
-        page,
-        f"A collector-facing research brief focused on thesis, evidence, and comparable outcomes. Source: {data_source}.",
+        f"{SHORT_NAME} / {page}",
+        f"{TAGLINE} Collector-facing research focused on thesis, evidence, and comparable outcomes. Source: {data_source}.",
         _last_refresh_timestamp(),
     )
 
