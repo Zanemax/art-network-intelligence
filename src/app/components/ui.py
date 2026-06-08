@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import textwrap
 from pathlib import Path
 from typing import Iterable
 
@@ -33,10 +34,16 @@ def load_design_system() -> None:
     st.markdown(f"<style>{STYLE_PATH.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
 
 
+def render_html(markup: str) -> None:
+    """Render custom HTML without Markdown treating indentation as code."""
+    st.markdown(textwrap.dedent(markup).strip(), unsafe_allow_html=True)
+
+
 def render_sidebar_brand() -> None:
     """Render a polished product brand block in the sidebar."""
     st.sidebar.markdown(
-        """
+        textwrap.dedent(
+            """
         <div class="ani-sidebar-brand">
           <div class="ani-logo-row">
             <div class="ani-logo-mark">ANI</div>
@@ -46,14 +53,15 @@ def render_sidebar_brand() -> None:
             </div>
           </div>
         </div>
-        """,
+        """
+        ).strip(),
         unsafe_allow_html=True,
     )
 
 
 def render_header(title: str, subtitle: str, refresh_timestamp: str) -> None:
     """Render the top product header."""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-top-header">
           <div>
@@ -63,14 +71,13 @@ def render_header(title: str, subtitle: str, refresh_timestamp: str) -> None:
           </div>
           <div class="ani-refresh">Last refresh<br>{escape(refresh_timestamp)}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
 def metric_card(label: str, value: str, caption: str = "", tone: str = "neutral") -> None:
     """Render a compact KPI card."""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-card ani-score-card">
           <div class="ani-card-caption">{escape(label)}</div>
@@ -78,15 +85,14 @@ def metric_card(label: str, value: str, caption: str = "", tone: str = "neutral"
           <div class="ani-metric-caption">{escape(caption)}</div>
           <div style="margin-top: .65rem;">{pill(tone.title(), tone=tone)}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
 def score_card(label: str, value: str, caption: str = "", confidence: str = "", tone: str = "neutral") -> None:
     """Render a high-emphasis score card for model outputs."""
     badge = confidence_badge(confidence, tone) if confidence else ""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-score-panel">
           <div class="ani-score-topline">
@@ -96,14 +102,13 @@ def score_card(label: str, value: str, caption: str = "", confidence: str = "", 
           <div class="ani-score-value">{escape(value)}</div>
           <div class="ani-score-caption">{escape(caption)}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
 def evidence_card(title: str, value: str, body: str, tone: str = "neutral") -> None:
     """Render one evidence card."""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-evidence-card {escape(tone)}">
           <div class="ani-evidence-card-head">
@@ -112,8 +117,7 @@ def evidence_card(title: str, value: str, body: str, tone: str = "neutral") -> N
           </div>
           <div class="ani-evidence-card-body">{escape(body)}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
@@ -138,7 +142,7 @@ def evidence_grid(rows: pd.DataFrame, limit: int = 6) -> None:
             </div>
             """
         )
-    st.markdown(f'<div class="ani-card-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="ani-card-grid">{"".join(cards)}</div>')
 
 
 def confidence_badge(label: str, tone: str = "neutral") -> str:
@@ -163,32 +167,30 @@ def relationship_cards(rows: pd.DataFrame, limit: int = 6) -> None:
             </div>
             """
         )
-    st.markdown(f'<div class="ani-relationship-list">{"".join(cards)}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="ani-relationship-list">{"".join(cards)}</div>')
 
 
 def empty_state(title: str, body: str = "") -> None:
     """Render a quiet empty state."""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-empty-state">
           <div class="ani-empty-title">{escape(title)}</div>
           <div class="ani-empty-body">{escape(body)}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
 def section_heading(title: str, caption: str = "") -> None:
     """Render a reusable section heading."""
-    st.markdown(
+    render_html(
         f"""
         <div class="ani-section-heading">
           <h2>{escape(title)}</h2>
           <span>{escape(caption)}</span>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 
@@ -200,13 +202,13 @@ def pill(label: str, tone: str = "neutral") -> str:
 
 def render_pill(label: str, tone: str = "neutral") -> None:
     """Render a status pill."""
-    st.markdown(pill(label, tone), unsafe_allow_html=True)
+    render_html(pill(label, tone))
 
 
 def note_box(text: str, warning: bool = False) -> None:
     """Render a low-noise product note or warning."""
     class_name = "ani-warning-box" if warning else "ani-note-box"
-    st.markdown(f'<div class="{class_name}">{escape(text)}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="{class_name}">{escape(text)}</div>')
 
 
 def driver_list(items: Iterable[str], empty_text: str = "No material signals available.") -> None:
@@ -215,12 +217,12 @@ def driver_list(items: Iterable[str], empty_text: str = "No material signals ava
     if not rows:
         rows = [empty_text]
     markup = "".join(f'<div class="ani-driver-item">{escape(str(item))}</div>' for item in rows)
-    st.markdown(f'<div class="ani-driver-list">{markup}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="ani-driver-list">{markup}</div>')
 
 
 def table_label(label: str) -> None:
     """Render a small table label."""
-    st.markdown(f'<div class="ani-table-label">{escape(label)}</div>', unsafe_allow_html=True)
+    render_html(f'<div class="ani-table-label">{escape(label)}</div>')
 
 
 def render_interactive_graph(
