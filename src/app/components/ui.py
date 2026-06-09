@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import textwrap
@@ -13,7 +14,7 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
-from src.app.branding import PRODUCT_NAME, SHORT_NAME, TAGLINE
+from src.app.branding import LOGO_PATH, PRODUCT_NAME, SHORT_NAME, TAGLINE
 
 
 STYLE_PATH = Path(__file__).resolve().parents[1] / "styles.css"
@@ -46,31 +47,36 @@ def render_html(markup: str) -> None:
 def render_sidebar_brand() -> None:
     """Render a polished product brand block in the sidebar."""
     mark = _logo_markup()
-    st.sidebar.markdown(
-        textwrap.dedent(
-            f"""
+    title = "" if _logo_data_uri() else f'<div class="ani-brand-title">{escape(PRODUCT_NAME)}</div>'
+    markup = textwrap.dedent(
+        f"""
         <div class="ani-sidebar-brand">
           <div class="ani-brand-stack">
             {mark}
-            <div class="ani-brand-title">{escape(PRODUCT_NAME)}</div>
+            {title}
             <div class="ani-brand-subtitle">{escape(TAGLINE)}</div>
           </div>
         </div>
         """
-        ).strip(),
-        unsafe_allow_html=True,
-    )
+    ).strip()
+    compact = "".join(line.strip() for line in markup.splitlines() if line.strip())
+    st.sidebar.markdown(compact, unsafe_allow_html=True)
 
 
 def render_header(title: str, subtitle: str, refresh_timestamp: str) -> None:
     """Render the top product header."""
+    logo = _logo_markup("header")
+    kicker = "" if _logo_data_uri() else f'<div class="ani-page-kicker">{escape(PRODUCT_NAME)}</div>'
     render_html(
         f"""
         <div class="ani-top-header">
-          <div>
-            <div class="ani-page-kicker">{escape(PRODUCT_NAME)}</div>
-            <div class="ani-page-title">{escape(title)}</div>
-            <div class="ani-page-subtitle">{escape(subtitle)}</div>
+          <div class="ani-header-brand">
+            {logo}
+            <div>
+              {kicker}
+              <div class="ani-page-title">{escape(title)}</div>
+              <div class="ani-page-subtitle">{escape(subtitle)}</div>
+            </div>
           </div>
           <div class="ani-refresh">Last refresh<br>{escape(refresh_timestamp)}</div>
         </div>
@@ -161,16 +167,50 @@ def relationship_cards(rows: pd.DataFrame, limit: int = 6) -> None:
         return
     cards = []
     for _, row in rows.head(limit).iterrows():
+        detail = str(row.get("detail", "") or "")
+        detail_markup = _relationship_detail_markup(detail)
+        title = str(row.get("counterparty", "") or "")
+        subtitle = str(row.get("counterparty_type", "") or "")
+        subtitle_markup = f'<div class="ani-relationship-meta">{escape(subtitle)}</div>' if subtitle and subtitle != title else ""
         cards.append(
             f"""
             <div class="ani-relationship-card">
-              <div class="ani-relationship-date">{escape(row.get("date", ""))}</div>
-              <div class="ani-relationship-main">{escape(row.get("relationship", ""))}</div>
-              <div class="ani-relationship-meta">{escape(row.get("counterparty", ""))} · {escape(row.get("counterparty_type", ""))}</div>
+              <div class="ani-relationship-topline">
+                <div class="ani-relationship-date">{escape(row.get("date", ""))}</div>
+                <div class="ani-relationship-type">{escape(row.get("relationship", ""))}</div>
+              </div>
+              <div class="ani-relationship-main">{escape(title)}</div>
+              {subtitle_markup}
+              {detail_markup}
             </div>
             """
         )
     render_html(f'<div class="ani-relationship-list">{"".join(cards)}</div>')
+
+
+def _relationship_detail_markup(detail: str) -> str:
+    """Render pipe-separated evidence metadata as readable key-value snippets."""
+    if not detail:
+        return ""
+    items = []
+    for part in (piece.strip() for piece in detail.split("|")):
+        if not part:
+            continue
+        if ":" in part:
+            label, value = part.split(":", 1)
+            items.append(
+                f"""
+                <span class="ani-relationship-detail">
+                  <span>{escape(label.strip())}</span>
+                  {escape(value.strip())}
+                </span>
+                """
+            )
+        else:
+            items.append(f'<span class="ani-relationship-detail">{escape(part)}</span>')
+    if not items:
+        return ""
+    return f'<div class="ani-relationship-details">{"".join(items)}</div>'
 
 
 def empty_state(title: str, body: str = "") -> None:
@@ -228,9 +268,21 @@ def table_label(label: str) -> None:
     render_html(f'<div class="ani-table-label">{escape(label)}</div>')
 
 
-def _logo_markup() -> str:
-    """Return a high-impact sidebar wordmark."""
-    return f'<div class="ani-logo-mark" aria-label="{escape(PRODUCT_NAME)}">{escape(SHORT_NAME)}</div>'
+def _logo_markup(placement: str = "sidebar") -> str:
+    """Return the configured PNG logo with a text fallback."""
+    source = _logo_data_uri()
+    if not source:
+        return f'<div class="ani-logo-mark" aria-label="{escape(PRODUCT_NAME)}">{escape(SHORT_NAME)}</div>'
+    class_name = "ani-logo-image header" if placement == "header" else "ani-logo-image sidebar"
+    return f'<img class="{class_name}" src="{source}" alt="{escape(PRODUCT_NAME)} logo" />'
+
+
+def _logo_data_uri() -> str:
+    """Return the logo PNG as an embeddable data URI."""
+    if not LOGO_PATH.exists():
+        return ""
+    encoded = base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def display_identifier(value: object) -> str:
@@ -238,7 +290,36 @@ def display_identifier(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    return text.replace("_", " ").title()
+    if "://" in text or "/" in text:
+        return text
+    base = text.removesuffix(".csv")
+    parts = [part for part in base.split("_") if part]
+    if len(parts) <= 1:
+        return _title_identifier_text(base)
+    prefixes = {"artist", "gallery", "museum", "collector", "curator", "institution"}
+    event_prefixes = {
+        "auction": "Auction result",
+        "press": "Press mention",
+        "event": "Event",
+        "fair": "Art fair",
+        "acq": "Acquisition",
+        "rel": "Relationship",
+    }
+    prefix = parts[0].lower()
+    if prefix in prefixes:
+        return _title_identifier_text(" ".join(parts[1:]))
+    if prefix in event_prefixes:
+        detail_parts = parts[1:]
+        detail_parts = [part for part in detail_parts if part.lower() not in prefixes]
+        detail = _title_identifier_text(" ".join(detail_parts))
+        return f"{event_prefixes[prefix]} - {detail}" if detail else event_prefixes[prefix]
+    return _title_identifier_text(" ".join(parts))
+
+
+def _title_identifier_text(text: str) -> str:
+    """Title-case identifier text while preserving common abbreviations."""
+    abbreviations = {"id": "ID", "url": "URL", "usd": "USD", "1y": "1Y", "3y": "3Y"}
+    return " ".join(abbreviations.get(part.lower(), part.capitalize()) for part in text.split())
 
 
 def render_interactive_graph(
@@ -287,7 +368,7 @@ def render_interactive_graph(
         x, y = normalized[node_id]
         data = graph.nodes[node_id]
         node_type = str(data.get("node_type", "unknown"))
-        name = str(data.get("name") or data.get("title") or node_id)
+        name = str(data.get("name") or data.get("title") or display_identifier(node_id))
         color = NODE_COLORS.get(node_type, "#8f8a80")
         radius = 11 if node_id != selected_node else 16
         stroke = "#181716" if node_id == selected_node else "#ffffff"

@@ -7,6 +7,8 @@ from src.app.components.graph_view import (
     filter_graph_by_date,
     get_artist_ego_network,
     get_top_signal_edges,
+    humanize_identifier,
+    relationship_display_label,
 )
 from src.data.synthetic import load_synthetic_dataset
 from src.graph.build_graph import build_investment_graph
@@ -51,3 +53,17 @@ def test_get_top_signal_edges_prioritizes_score_relevant_relationships() -> None
 
     assert len(edges) == 5
     assert any(relationship in relationship_types for relationship in {"acquired_artist", "included_in", "represents"})
+
+
+def test_humanize_identifier_makes_evidence_ids_readable() -> None:
+    """Verify raw evidence IDs do not leak underscore-heavy labels into the UI."""
+    assert humanize_identifier("artist_kaye_donachie") == "Kaye Donachie"
+    assert humanize_identifier("auction_002_artist_kaye_donachie") == "Auction result - 002 Kaye Donachie"
+    assert humanize_identifier("press_artist_ada_rios_2021") == "Press mention - Ada Rios 2021"
+    assert humanize_identifier("major_museum_acquisition_count") == "Major Museum Acquisition Count"
+
+
+def test_relationship_display_labels_are_clear_for_exhibitions() -> None:
+    """Verify exhibition evidence labels describe the relationship clearly."""
+    assert relationship_display_label("included_in") == "Included in exhibition"
+    assert relationship_display_label("gallery_exhibition") == "Gallery exhibition"

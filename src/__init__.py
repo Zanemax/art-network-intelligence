@@ -1,1 +1,1 @@
-"""Top-level package for the Art Taste Graph MVP."""
+"""Top-level package for the Universal Graph MVP."""

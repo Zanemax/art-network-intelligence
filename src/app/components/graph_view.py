@@ -25,8 +25,9 @@ NODE_COLORS = {
 
 EDGE_LABELS = {
     "represents": "Represented by",
-    "included_in": "Exhibited at",
+    "included_in": "Included in exhibition",
     "hosted_by": "Hosted by",
+    "gallery_exhibition": "Gallery exhibition",
     "acquired_artist": "Acquired by",
     "acquired_work_by": "Acquired by",
     "collects": "Collected by",
@@ -391,7 +392,39 @@ def humanize_identifier(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    return text.replace("_", " ").title()
+    if "://" in text or "/" in text:
+        return text
+
+    base = text.removesuffix(".csv")
+    parts = [part for part in base.split("_") if part]
+    if len(parts) <= 1:
+        return _title_identifier_text(base)
+
+    prefix = parts[0].lower()
+    entity_prefixes = {"artist", "gallery", "museum", "collector", "curator", "institution"}
+    event_prefixes = {
+        "auction": "Auction result",
+        "press": "Press mention",
+        "event": "Event",
+        "fair": "Art fair",
+        "acq": "Acquisition",
+        "rel": "Relationship",
+    }
+
+    if prefix in entity_prefixes:
+        return _title_identifier_text(" ".join(parts[1:]))
+    if prefix in event_prefixes:
+        detail_parts = parts[1:]
+        detail_parts = [part for part in detail_parts if part.lower() not in entity_prefixes]
+        detail = _title_identifier_text(" ".join(detail_parts))
+        return f"{event_prefixes[prefix]} - {detail}" if detail else event_prefixes[prefix]
+    return _title_identifier_text(" ".join(parts))
+
+
+def _title_identifier_text(text: str) -> str:
+    """Title-case identifier text while preserving common abbreviations."""
+    abbreviations = {"id": "ID", "url": "URL", "usd": "USD", "1y": "1Y", "3y": "3Y"}
+    return " ".join(abbreviations.get(part.lower(), part.capitalize()) for part in text.split())
 
 
 def _closest_node_by_type(graph: nx.MultiDiGraph, artist_id: str, node_type: str) -> str:
@@ -421,7 +454,7 @@ def _relationship_summary(graph: nx.MultiDiGraph, edge: tuple[str, str, dict[str
 def _node_label(graph: nx.MultiDiGraph, node_id: str) -> str:
     """Return display label for one graph node."""
     data = graph.nodes[node_id]
-    return str(data.get("name") or data.get("title") or node_id)
+    return str(data.get("name") or data.get("title") or humanize_identifier(node_id))
 
 
 def _highlight_role(node_id: str, highlighted_nodes: dict[str, set[str]]) -> str:

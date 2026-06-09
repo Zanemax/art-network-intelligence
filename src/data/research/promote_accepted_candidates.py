@@ -18,6 +18,8 @@ from src.data.research.generate_candidates import CANDIDATE_COLUMNS, DEFAULT_OUT
 
 DEFAULT_PROMOTED_TEMPLATE = Path("data/raw/manual/accepted_artist_research_template.csv")
 ACCEPTED_VALUES = {"yes", "y", "true", "1"}
+REVIEW_OVERRIDE_PREFIX = "template."
+REVIEW_OVERRIDE_PROTECTED_COLUMNS = {"artist_id", "artist_name", "notes"}
 
 
 def promote_accepted_candidates(
@@ -93,6 +95,13 @@ def _candidate_to_research_row(candidate: pd.Series) -> dict[str, str]:
     if observation_type in {"artist_profile", "identity", "bio"}:
         row["bio_source_url"] = source_url
         row["bio_confidence_score"] = confidence
+    elif observation_type in {"gallery_exhibition"} or relationship_type in {"gallery_exhibition"}:
+        row["gallery_name"] = observed_entity
+        row["museum_event_type"] = "gallery_exhibition"
+        row["event_name"] = event_name or observed_entity
+        row["event_start_date"] = event_date
+        row["event_source_url"] = source_url
+        row["event_confidence_score"] = confidence
     elif observation_type in {"gallery_representation", "gallery"} or relationship_type in {"represents", "represented_by"}:
         row["gallery_name"] = observed_entity
         row["gallery_start_date"] = event_date
@@ -139,6 +148,7 @@ def _candidate_to_research_row(candidate: pd.Series) -> dict[str, str]:
     else:
         row["bio_source_url"] = source_url
         row["bio_confidence_score"] = confidence
+    row.update(_review_field_overrides(candidate))
     return row
 
 
@@ -167,6 +177,42 @@ def _align_research_rows(frame: pd.DataFrame) -> pd.DataFrame:
 def _is_accepted(value: str) -> bool:
     """Return whether a review value means accepted."""
     return str(value).strip().casefold() in ACCEPTED_VALUES
+
+
+def _review_field_overrides(candidate: pd.Series) -> dict[str, str]:
+    """Parse template-column overrides from review notes."""
+    notes = str(candidate.get("review_notes", "")).strip()
+    if not notes:
+        return {}
+    overrides = {}
+    for part in _review_note_parts(notes):
+        if "=" not in part:
+            continue
+        raw_key, raw_value = part.split("=", 1)
+        key = raw_key.strip()
+        value = raw_value.strip()
+        if key.startswith(REVIEW_OVERRIDE_PREFIX):
+            key = key.removeprefix(REVIEW_OVERRIDE_PREFIX).strip()
+            _validate_review_override_key(key, candidate)
+        elif key not in RESEARCH_REQUIRED_COLUMNS:
+            continue
+        elif key in REVIEW_OVERRIDE_PROTECTED_COLUMNS:
+            _validate_review_override_key(key, candidate)
+        overrides[key] = value
+    return overrides
+
+
+def _review_note_parts(notes: str) -> list[str]:
+    """Split review notes into possible override fragments."""
+    return [part.strip() for chunk in str(notes).split("|") for part in chunk.split(";") if part.strip()]
+
+
+def _validate_review_override_key(key: str, candidate: pd.Series) -> None:
+    """Validate a requested template override key."""
+    if key in REVIEW_OVERRIDE_PROTECTED_COLUMNS:
+        raise ValueError(f"Review override cannot set protected column {key}: {candidate['candidate_id']}")
+    if key not in RESEARCH_REQUIRED_COLUMNS:
+        raise ValueError(f"Unknown review override column {key}: {candidate['candidate_id']}")
 
 
 def _notes(candidate: pd.Series) -> str:

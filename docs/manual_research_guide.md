@@ -29,21 +29,39 @@ Use this workflow when you want help finding possible observations, but still
 want a human researcher to decide what enters the graph.
 
 1. Add artists to `data/raw/manual/artist_seed_list.csv`.
-2. Generate candidate observations:
+2. Add curated source pages to `data/raw/manual/source_pages.csv` when you want
+   the assistant to search the same kinds of sources you use manually. Supported
+   `source_type` values include `gallery`, `museum`, `auction`, `press`, and
+   `artist_profile`. A source can be artist-specific by filling `artist_id`, or
+   shared across all seed artists by leaving `artist_id` blank.
+3. Generate candidate observations:
 
 ```bash
 python -m src.data.research.generate_candidates
 ```
 
-3. Review `data/raw/candidates/candidate_observations.csv`.
-4. Set `accepted=yes` only for sourced observations you trust.
-5. Promote accepted rows into manual research format:
+The generator now combines Wikidata leads with curated source-page collection.
+For gallery/museum/auction/press pages, it fetches the configured page, follows
+same-domain artist-matching links, and writes reviewable candidates with source
+URLs, excerpts, event names, rough dates, and confidence scores.
+
+4. Review `data/raw/candidates/candidate_observations.csv`.
+5. Set `accepted=yes` only for sourced observations you trust.
+6. Add structured details in `review_notes` when the candidate needs fields that
+   are not present in the candidate row. Use `template.<column>=<value>` snippets
+   separated by semicolons, for example:
+
+```text
+verified from museum page; template.museum_name=Tate Modern; template.museum_city=London; template.event_start_date=2017-02-15
+```
+
+7. Promote accepted rows into manual research format:
 
 ```bash
 python -m src.data.research.promote_accepted_candidates
 ```
 
-6. Import the promoted manual CSV:
+8. Import the promoted manual CSV:
 
 ```bash
 python -m src.data.import_research_template data/raw/manual/accepted_artist_research_template.csv
@@ -57,6 +75,10 @@ Candidate rows include two review fields:
 
 - `needs_human_review_reason`: why the row is not safe to ingest automatically.
 - `why_matched`: why the source was matched to the seed artist.
+- `review_notes`: the human decision trail. Plain notes are preserved, and
+  `template.<column>=<value>` snippets are copied into the promoted manual
+  research row. Explicit template overrides fail fast if the column name is not
+  in `artist_research_template.csv`, which helps catch typos before import.
 
 Supported candidate observation types include `artist_profile`,
 `gallery_representation`, `museum_exhibition`, `museum_acquisition`,

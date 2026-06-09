@@ -1,3 +1,6 @@
 artist_id,canonical_name,birth_year,death_year,nationality,gender,primary_medium,artist_website_url,source_url,confidence_score,notes
 artist_kaye_donachie,Kaye Donachie,1970,,British,female,painting,,https://www.maureenpaley.com/artists/kaye-donachie/biography,1,
 artist_pavlo_kerestey,Pavlo Kerestey,1962,,,male,painting,,https://voloshyngallery.art/artists/37-pavlo-kerestey/,1,
+artist_nikita_kadan,Nikita Kadan,1982,,Ukraine,male,,,https://voloshyngallery.art/artists/29-nikita-kadan/,1,
+artist_zhanna_kadyrova,Zhanna Kadyrova,1981,,Ukraine,,,,https://www.kadyrova.com/cv,1,
+artist_wolfgang_tillmans,Wolfgang Tillmans,1968,,Germany,male,,,https://www.tillmans.co.uk/biography-&-bibliography,1.00,

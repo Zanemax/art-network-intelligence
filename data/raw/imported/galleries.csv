@@ -1,3 +1,7 @@
 gallery_id,institution_id,canonical_name,city,country,founded_year,prestige_score,source_url,confidence_score,notes
 gallery_maureen_paley,institution_maureen_paley,Maureen Paley,London,United Kingdom,,0.5,https://www.maureenpaley.com/about,1,
 gallery_voloshyn_gallery,institution_voloshyn_gallery,Voloshyn Gallery,Miami,United States,,0.5,https://voloshyngallery.art/contact/,1,
+gallery_lismore_castle,institution_lismore_castle,Lismore Castle,County Waterford,Ireland,,0.5,https://lismorecastlearts.ie/whats-on/kaye-donachie,1,
+gallery_yuka_tsuruno_gallery,institution_yuka_tsuruno_gallery,Yuka Tsuruno Gallery,Tokyo,Japan,,0.5,https://yukatsuruno.com/gallery/exhibitions,1,
+gallery_galleria_continua,institution_galleria_continua,Galleria Continua,,,,0.5,https://www.galleriacontinua.com/about,1,
+gallery_david_zwirner,institution_david_zwirner,David Zwirner,,,,0.5,https://www.davidzwirner.com/artists/wolfgang-tillmans,1.00,

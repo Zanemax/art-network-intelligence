@@ -84,9 +84,9 @@ The data dictionary is in:
 docs/data_dictionary.md
 ```
 
-## Taste Graph
+## Universal Graph
 
-The taste graph is a typed temporal graph built with NetworkX.
+The universal graph is a typed temporal graph built with NetworkX.
 
 Node examples:
 
@@ -168,7 +168,7 @@ Dashboard pages:
 
 - Artist Search
 - Artist Profile
-- Taste Graph Explorer
+- Universal Graph
 - Similar Artists
 - Model Evaluation
 - Data Quality
@@ -215,6 +215,10 @@ The guide explains how to collect:
 - collector and curator signals
 - source URLs
 - confidence scores
+
+For semi-automated review, candidate rows can be accepted and enriched with
+`template.<column>=<value>` snippets in `review_notes`; promotion copies those
+values into the wide manual research template while preserving the review trail.
 
 Convert filled research rows into normalized CSVs:
 

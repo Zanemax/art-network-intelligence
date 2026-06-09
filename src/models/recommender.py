@@ -1,4 +1,4 @@
-"""Placeholder recommendation logic for the Art Taste Graph MVP.
+"""Placeholder recommendation logic for the Universal Graph MVP.
 
 This module will eventually combine graph neighborhoods, content features, and
 scikit-learn similarity models to suggest artworks or artists.

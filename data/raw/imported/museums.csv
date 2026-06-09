@@ -1,1 +1,2 @@
 museum_id,institution_id,canonical_name,city,country,founded_year,tier,prestige_score,source_url,confidence_score,notes
+museum_la_biennale_di_venezia,institution_la_biennale_di_venezia,La Biennale di Venezia,Venice,Italy,,,0.6,https://www.labiennale.org/en/art/2026/ukraine,1.00,

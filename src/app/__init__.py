@@ -1,1 +1,1 @@
-"""Streamlit application package for the Art Taste Graph MVP."""
+"""Streamlit application package for the Universal Graph MVP."""

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import json
 import unicodedata
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -44,7 +46,17 @@ CANDIDATE_COLUMNS = (
 )
 DEFAULT_SEED_LIST = Path("data/raw/manual/artist_seed_list.csv")
 DEFAULT_OUTPUT = Path("data/raw/candidates/candidate_observations.csv")
+DEFAULT_SOURCE_PAGES = Path("data/raw/manual/source_pages.csv")
 WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
+SOURCE_PAGE_COLUMNS = (
+    "source_id",
+    "artist_id",
+    "canonical_name",
+    "source_type",
+    "source_name",
+    "url",
+    "notes",
+)
 
 STRUCTURED_OBSERVATION_TYPES = {
     "artist_profile",
@@ -113,14 +125,18 @@ def generate_candidates(
     output_path: str | Path = DEFAULT_OUTPUT,
     max_results_per_artist: int = 3,
     timeout_seconds: float = 8.0,
+    source_pages_path: str | Path = DEFAULT_SOURCE_PAGES,
+    max_source_links_per_page: int = 12,
 ) -> pd.DataFrame:
     """Generate candidate observations and merge them with existing review rows."""
     seeds = _read_seed_list(Path(seed_list_path))
+    source_pages = _read_source_pages(Path(source_pages_path))
     generated = []
     for _, seed in seeds.iterrows():
         if not str(seed["canonical_name"]).strip():
             continue
         generated.extend(_wikidata_candidates(seed, max_results_per_artist, timeout_seconds))
+        generated.extend(_source_page_candidates(seed, source_pages, timeout_seconds, max_source_links_per_page))
 
     generated_frame = _align_candidates(pd.DataFrame(generated))
     existing = _reclassify_unreviewed_wikidata_rows(_read_candidates(Path(output_path)))
@@ -152,6 +168,18 @@ def _read_candidates(path: Path) -> pd.DataFrame:
         if column not in rows.columns:
             rows[column] = ""
     return rows[list(CANDIDATE_COLUMNS)]
+
+
+def _read_source_pages(path: Path) -> pd.DataFrame:
+    """Read curated source pages for source-specific candidate collection."""
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(columns=SOURCE_PAGE_COLUMNS).to_csv(path, index=False)
+    rows = pd.read_csv(path, dtype=str).fillna("")
+    for column in SOURCE_PAGE_COLUMNS:
+        if column not in rows.columns:
+            rows[column] = ""
+    return rows[list(SOURCE_PAGE_COLUMNS)]
 
 
 def _wikidata_candidates(seed: pd.Series, max_results: int, timeout_seconds: float) -> list[dict[str, str]]:
@@ -202,6 +230,317 @@ def _wikidata_candidates(seed: pd.Series, max_results: int, timeout_seconds: flo
         candidate["candidate_id"] = _candidate_id(candidate)
         raw_candidates.append(candidate)
     return _dedupe_wikidata_candidates(raw_candidates)
+
+
+def _source_page_candidates(
+    seed: pd.Series,
+    source_pages: pd.DataFrame,
+    timeout_seconds: float,
+    max_links_per_page: int,
+) -> list[dict[str, str]]:
+    """Return candidates from curated gallery, museum, auction, and press pages."""
+    rows = []
+    for _, source in source_pages.iterrows():
+        if not _source_applies_to_seed(source, seed):
+            continue
+        source_url = str(source["url"]).strip()
+        if not source_url:
+            continue
+        page = _fetch_source_page(source_url, timeout_seconds)
+        if not page:
+            continue
+        rows.extend(_candidates_from_source_page(seed, source, source_url, page))
+        for link in _artist_links_from_page(page, source_url, str(seed["canonical_name"]), max_links_per_page):
+            if link["url"] == source_url:
+                continue
+            linked_page = _fetch_source_page(link["url"], timeout_seconds)
+            if not linked_page:
+                linked_page = {"title": link["text"], "text": link["text"], "links": []}
+            rows.extend(_candidates_from_source_page(seed, source, link["url"], linked_page, link_text=link["text"]))
+    return _dedupe_source_candidates(rows)
+
+
+def _source_applies_to_seed(source: pd.Series, seed: pd.Series) -> bool:
+    """Return whether a configured source should be searched for a seed artist."""
+    source_artist_id = str(source.get("artist_id", "")).strip()
+    source_name = str(source.get("canonical_name", "")).strip()
+    if source_artist_id and source_artist_id != str(seed["artist_id"]):
+        return False
+    if source_name and not _name_match_strength(str(seed["canonical_name"]), source_name):
+        return False
+    return True
+
+
+def _fetch_source_page(url: str, timeout_seconds: float) -> dict[str, object]:
+    """Fetch and parse a source page into text and links."""
+    request = Request(url, headers={"User-Agent": "art-network-intelligence-research/0.2"})
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:
+            content_type = response.headers.get("content-type", "")
+            if "html" not in content_type and "text" not in content_type:
+                return {}
+            html = response.read().decode("utf-8", errors="replace")
+    except Exception:
+        return {}
+    parser = _SourceHTMLParser()
+    parser.feed(html)
+    return {
+        "title": parser.title.strip(),
+        "text": " ".join(parser.text_parts),
+        "links": parser.links,
+    }
+
+
+def _candidates_from_source_page(
+    seed: pd.Series,
+    source: pd.Series,
+    url: str,
+    page: dict[str, object],
+    link_text: str = "",
+) -> list[dict[str, str]]:
+    """Create review candidates when a source page appears to mention a seed artist."""
+    seed_name = str(seed["canonical_name"])
+    page_text = str(page.get("text", ""))
+    title = str(page.get("title", ""))
+    excerpt = _source_excerpt(seed_name, " ".join(part for part in [link_text, title, page_text] if part))
+    if not excerpt and not _name_match_strength(seed_name, title) and not _name_match_strength(seed_name, link_text):
+        return []
+
+    source_type = str(source["source_type"]).strip().casefold()
+    classification = _classify_source_page(source_type, seed_name, title, link_text, page_text)
+    observed_entity = classification["observed_entity_name"] or str(source["source_name"]) or title or seed_name
+    if classification["observation_type"] == "gallery_exhibition" and str(source["source_name"]).strip():
+        observed_entity = str(source["source_name"]).strip()
+    candidate = {
+        "artist_id": str(seed["artist_id"]),
+        "canonical_name": seed_name,
+        "observation_type": classification["observation_type"],
+        "observed_entity_name": observed_entity,
+        "event_name": classification["event_name"],
+        "event_date": classification["event_date"],
+        "relationship_type": classification["relationship_type"],
+        "source_url": url,
+        "source_name": str(source["source_name"]) or _source_name_from_url(url),
+        "raw_text_excerpt": excerpt or _excerpt(title or link_text, page_text[:180]),
+        "suggested_confidence_score": classification["suggested_confidence_score"],
+        "accepted": "no",
+        "needs_human_review_reason": classification["needs_human_review_reason"],
+        "why_matched": classification["why_matched"],
+        "review_notes": classification["review_notes"],
+    }
+    candidate["candidate_id"] = _candidate_id(candidate)
+    return [candidate]
+
+
+def _classify_source_page(
+    source_type: str,
+    seed_name: str,
+    title: str,
+    link_text: str,
+    page_text: str,
+) -> dict[str, str]:
+    """Classify a curated source-page hit into a reviewable observation."""
+    text = " ".join(part for part in [source_type, title, link_text, page_text] if part)
+    text_casefold = text.casefold()
+    event_date = _extract_date(text)
+    event_name = _clean_event_name(title or link_text)
+    observed = event_name or title or link_text or seed_name
+    why = f"Curated {source_type or 'source'} page mentioned '{seed_name}'."
+    review_notes = ""
+
+    if source_type in {"gallery", "gallery_exhibition", "exhibition"} or any(term in text_casefold for term in EXHIBITION_TERMS):
+        is_representation = _looks_like_representation(text_casefold)
+        is_gallery_exhibition = (source_type in {"gallery", "gallery_exhibition"} or "gallery" in text_casefold) and not is_representation
+        return {
+            "observation_type": "gallery_representation" if is_representation else "gallery_exhibition" if is_gallery_exhibition else "museum_exhibition",
+            "observed_entity_name": observed,
+            "event_name": event_name or observed,
+            "event_date": event_date,
+            "relationship_type": "represents" if is_representation else "gallery_exhibition" if is_gallery_exhibition else "exhibited_at",
+            "suggested_confidence_score": "0.85" if source_type in {"gallery", "museum"} else "0.70",
+            "needs_human_review_reason": "Source page appears to describe an exhibition or gallery relationship; verify host, dates, and whether this is representation or only a venue.",
+            "why_matched": why,
+            "review_notes": review_notes,
+        }
+
+    if source_type in {"museum", "institution"}:
+        return {
+            "observation_type": "museum_exhibition",
+            "observed_entity_name": observed,
+            "event_name": event_name or observed,
+            "event_date": event_date,
+            "relationship_type": "exhibited_at",
+            "suggested_confidence_score": "0.85",
+            "needs_human_review_reason": "Museum or institution page mentioned the artist; verify event/acquisition details.",
+            "why_matched": why,
+            "review_notes": "",
+        }
+
+    if source_type in {"auction", "auction_house"} or any(term in text_casefold for term in AUCTION_TERMS):
+        return {
+            "observation_type": "auction_result",
+            "observed_entity_name": observed,
+            "event_name": "",
+            "event_date": event_date,
+            "relationship_type": "has_auction_result",
+            "suggested_confidence_score": "0.85" if source_type in {"auction", "auction_house"} else "0.65",
+            "needs_human_review_reason": "Auction-like source page mentioned the artist; verify lot, sale date, and price.",
+            "why_matched": why,
+            "review_notes": "",
+        }
+
+    if source_type in {"press", "publication"} or any(term in text_casefold for term in PRESS_TERMS):
+        return {
+            "observation_type": "press_mention",
+            "observed_entity_name": observed,
+            "event_name": "",
+            "event_date": event_date,
+            "relationship_type": "mentioned_in_press",
+            "suggested_confidence_score": "0.75",
+            "needs_human_review_reason": "Press-like source page mentioned the artist; verify outlet, date, and article relevance.",
+            "why_matched": why,
+            "review_notes": "",
+        }
+
+    return {
+        "observation_type": "artist_profile",
+        "observed_entity_name": observed,
+        "event_name": "",
+        "event_date": event_date,
+        "relationship_type": "identity_match",
+        "suggested_confidence_score": "0.65",
+        "needs_human_review_reason": "Curated source page mentioned the artist; classify the observation before accepting.",
+        "why_matched": why,
+        "review_notes": "",
+    }
+
+
+def _artist_links_from_page(
+    page: dict[str, object],
+    base_url: str,
+    artist_name: str,
+    max_links: int,
+) -> list[dict[str, str]]:
+    """Find same-domain links likely to contain artist-specific evidence."""
+    base_domain = _domain(base_url)
+    artist_tokens = set(_normalize_name(artist_name).split())
+    candidates = []
+    seen = set()
+    for link in page.get("links", []):
+        href = str(link.get("href", "")).strip()
+        text = str(link.get("text", "")).strip()
+        if not href:
+            continue
+        url = urljoin(base_url, href)
+        if _domain(url) != base_domain or url in seen:
+            continue
+        link_text = f"{text} {urlparse(url).path}".casefold()
+        if not artist_tokens.intersection(set(_normalize_name(link_text).split())):
+            continue
+        seen.add(url)
+        candidates.append({"url": url, "text": text})
+        if len(candidates) >= max_links:
+            break
+    return candidates
+
+
+def _dedupe_source_candidates(candidates: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Deduplicate source candidates by stable ID."""
+    return list({candidate["candidate_id"]: candidate for candidate in candidates}.values())
+
+
+def _source_excerpt(artist_name: str, text: str, window: int = 260) -> str:
+    """Return a compact excerpt around the artist name."""
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return ""
+    index = clean.casefold().find(artist_name.casefold())
+    if index < 0:
+        return clean[:window]
+    start = max(0, index - window // 2)
+    end = min(len(clean), index + len(artist_name) + window // 2)
+    return clean[start:end]
+
+
+def _clean_event_name(value: str) -> str:
+    """Clean a page title or link text into a candidate event name."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" |–—-")
+    return text[:180]
+
+
+def _extract_date(text: str) -> str:
+    """Extract a conservative date-like value from source text."""
+    raw = str(text or "")
+    iso = re.search(r"\b(20\d{2}|19\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b", raw)
+    if iso:
+        year, month, day = iso.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    day_month_year = re.search(
+        r"\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2}|19\d{2})\b",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if day_month_year:
+        day, month_name, year = day_month_year.groups()
+        month = pd.Timestamp(f"1 {month_name} {year}").month
+        return f"{year}-{month:02d}-{int(day):02d}"
+    year = re.search(r"\b(20\d{2}|19\d{2})\b", raw)
+    return year.group(1) if year else ""
+
+
+def _looks_like_representation(text_casefold: str) -> bool:
+    """Return whether text looks like gallery representation rather than a venue listing."""
+    return any(phrase in text_casefold for phrase in {"represented by", "represents ", "is pleased to represent", "gallery artists"})
+
+
+def _source_name_from_url(url: str) -> str:
+    """Return a readable source name from a URL host."""
+    domain = _domain(url)
+    return domain or "Source page"
+
+
+def _domain(url: str) -> str:
+    """Return normalized URL domain."""
+    return urlparse(str(url)).netloc.lower().removeprefix("www.")
+
+
+class _SourceHTMLParser(HTMLParser):
+    """Small HTML text/link parser for curated source pages."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.text_parts: list[str] = []
+        self.links: list[dict[str, str]] = []
+        self.title = ""
+        self._in_title = False
+        self._active_href = ""
+        self._active_link_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "title":
+            self._in_title = True
+        if tag == "a":
+            attr_map = dict(attrs)
+            self._active_href = str(attr_map.get("href") or "")
+            self._active_link_text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_title = False
+        if tag == "a" and self._active_href:
+            self.links.append({"href": self._active_href, "text": " ".join(self._active_link_text).strip()})
+            self._active_href = ""
+            self._active_link_text = []
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(str(data or "").split())
+        if not text:
+            return
+        if self._in_title:
+            self.title = f"{self.title} {text}".strip()
+        if self._active_href:
+            self._active_link_text.append(text)
+        self.text_parts.append(text)
 
 
 def _classify_wikidata_result(seed: pd.Series, observed_name: str, description: str) -> dict[str, str]:
@@ -418,6 +757,7 @@ def _candidate_sort_key(candidate: dict[str, str]) -> tuple[int, float]:
     type_rank = {
         "artist_profile": 5,
         "museum_exhibition": 4,
+        "gallery_exhibition": 4,
         "gallery_representation": 3,
         "museum_acquisition": 3,
         "auction_result": 3,
@@ -473,14 +813,22 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate sourced candidate observations for review.")
     parser.add_argument("--seed-list", default=str(DEFAULT_SEED_LIST), help="Path to artist seed list CSV.")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Path to candidate observations CSV.")
+    parser.add_argument("--source-pages", default=str(DEFAULT_SOURCE_PAGES), help="Path to curated source pages CSV.")
     parser.add_argument("--max-results-per-artist", type=int, default=3, help="Maximum structured-source matches per artist.")
+    parser.add_argument("--max-source-links-per-page", type=int, default=12, help="Maximum artist-matching links to follow per source page.")
     return parser.parse_args()
 
 
 def main() -> None:
     """Run candidate generation."""
     args = _parse_args()
-    output = generate_candidates(args.seed_list, args.output, args.max_results_per_artist)
+    output = generate_candidates(
+        args.seed_list,
+        args.output,
+        args.max_results_per_artist,
+        source_pages_path=args.source_pages,
+        max_source_links_per_page=args.max_source_links_per_page,
+    )
     print(f"Wrote {len(output)} candidate rows to {args.output}")
     print("Review candidates and set accepted=yes before promotion.")
 

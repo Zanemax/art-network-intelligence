@@ -160,6 +160,64 @@ def test_wikidata_dedupes_artist_profile_candidates() -> None:
     assert [row["candidate_id"] for row in deduped] == ["candidate_1", "candidate_3"]
 
 
+def test_generate_candidates_uses_curated_gallery_source_pages(tmp_path, monkeypatch) -> None:
+    """Curated gallery pages should produce reviewable exhibition candidates."""
+    seed_path = tmp_path / "artist_seed_list.csv"
+    output_path = tmp_path / "candidate_observations.csv"
+    source_pages_path = tmp_path / "source_pages.csv"
+    pd.DataFrame(
+        [
+            {
+                "artist_id": "artist_001",
+                "canonical_name": "Ada Rios",
+                "primary_medium": "painting",
+                "notes": "",
+            }
+        ]
+    ).to_csv(seed_path, index=False)
+    pd.DataFrame(
+        [
+            {
+                "source_id": "gallery_example",
+                "artist_id": "",
+                "canonical_name": "",
+                "source_type": "gallery",
+                "source_name": "Example Gallery",
+                "url": "https://example-gallery.test/exhibitions",
+                "notes": "",
+            }
+        ]
+    ).to_csv(source_pages_path, index=False)
+
+    def fake_wikidata_candidates(seed, max_results, timeout_seconds):
+        return []
+
+    def fake_fetch_source_page(url, timeout_seconds):
+        if url.endswith("/exhibitions"):
+            return {
+                "title": "Example Gallery exhibitions",
+                "text": "Current exhibitions and archive",
+                "links": [{"href": "/exhibitions/ada-rios-new-work", "text": "Ada Rios: New Work"}],
+            }
+        return {
+            "title": "Ada Rios: New Work",
+            "text": "Ada Rios: New Work 12 March 2024 solo exhibition at Example Gallery.",
+            "links": [],
+        }
+
+    monkeypatch.setattr(generator, "_wikidata_candidates", fake_wikidata_candidates)
+    monkeypatch.setattr(generator, "_fetch_source_page", fake_fetch_source_page)
+
+    output = generator.generate_candidates(seed_path, output_path, source_pages_path=source_pages_path)
+
+    row = output[output["source_url"] == "https://example-gallery.test/exhibitions/ada-rios-new-work"].iloc[0]
+    assert row["observation_type"] == "gallery_exhibition"
+    assert row["observed_entity_name"] == "Example Gallery"
+    assert row["event_name"] == "Ada Rios: New Work"
+    assert row["relationship_type"] == "gallery_exhibition"
+    assert row["event_date"] == "2024-03-12"
+
+
 def test_reclassifies_only_unreviewed_wikidata_rows() -> None:
     """Old unreviewed Wikidata rows should migrate, reviewed rows should remain stable."""
     existing = pd.DataFrame(
@@ -267,3 +325,100 @@ def test_promote_accepted_candidates_writes_manual_research_rows(tmp_path) -> No
     assert output.loc[0, "gallery_source_url"] == "https://example.com/gallery"
     assert "candidate_id=candidate_gallery" in output.loc[0, "notes"]
     assert "why_matched=Official gallery text matched the artist name." in output.loc[0, "notes"]
+
+
+def test_promote_accepted_candidates_applies_review_note_template_overrides(tmp_path) -> None:
+    """Reviewers should be able to add precise template fields without editing the wide CSV."""
+    candidate_path = tmp_path / "candidate_observations.csv"
+    promoted_path = tmp_path / "accepted_artist_research_template.csv"
+    row = _candidate_row(
+        candidate_id="candidate_exhibition",
+        observation_type="museum_exhibition",
+        observed_entity_name="Ada Rios: New Work",
+        event_name="Ada Rios: New Work",
+        relationship_type="exhibited_at",
+        source_url="https://example.com/exhibition",
+        review_notes=(
+            "verified from museum page; template.museum_name=Example Museum; "
+            "template.museum_city=London; template.museum_country=United Kingdom; "
+            "template.event_start_date=2024-03-01; template.museum_tier=major"
+        ),
+    )
+    pd.DataFrame([row]).to_csv(candidate_path, index=False)
+
+    output = promote_accepted_candidates(candidate_path, promoted_path)
+
+    assert output.loc[0, "museum_name"] == "Example Museum"
+    assert output.loc[0, "museum_city"] == "London"
+    assert output.loc[0, "museum_country"] == "United Kingdom"
+    assert output.loc[0, "event_name"] == "Ada Rios: New Work"
+    assert output.loc[0, "event_start_date"] == "2024-03-01"
+    assert output.loc[0, "event_source_url"] == "https://example.com/exhibition"
+    assert "review_notes=verified from museum page" in output.loc[0, "notes"]
+
+
+def test_promote_accepted_gallery_exhibition_candidate(tmp_path) -> None:
+    """Accepted gallery exhibition candidates should promote as venue events."""
+    candidate_path = tmp_path / "candidate_observations.csv"
+    promoted_path = tmp_path / "accepted_artist_research_template.csv"
+    row = _candidate_row(
+        candidate_id="candidate_gallery_exhibition",
+        observation_type="gallery_exhibition",
+        observed_entity_name="Example Gallery",
+        event_name="Ada Rios: New Work",
+        event_date="2024-03-12",
+        relationship_type="gallery_exhibition",
+        source_url="https://example-gallery.test/exhibitions/ada-rios-new-work",
+        source_name="Example Gallery",
+    )
+    pd.DataFrame([row]).to_csv(candidate_path, index=False)
+
+    output = promote_accepted_candidates(candidate_path, promoted_path)
+
+    assert output.loc[0, "gallery_name"] == "Example Gallery"
+    assert output.loc[0, "museum_event_type"] == "gallery_exhibition"
+    assert output.loc[0, "event_name"] == "Ada Rios: New Work"
+    assert output.loc[0, "event_start_date"] == "2024-03-12"
+    assert output.loc[0, "gallery_start_date"] == ""
+
+
+def test_promote_accepted_candidates_rejects_unknown_template_override(tmp_path) -> None:
+    """Mistyped explicit template overrides should fail before promotion."""
+    candidate_path = tmp_path / "candidate_observations.csv"
+    promoted_path = tmp_path / "accepted_artist_research_template.csv"
+    row = _candidate_row(
+        candidate_id="candidate_typo",
+        review_notes="template.musem_name=Typo Museum",
+    )
+    pd.DataFrame([row]).to_csv(candidate_path, index=False)
+
+    try:
+        promote_accepted_candidates(candidate_path, promoted_path)
+    except ValueError as error:
+        assert "Unknown review override column musem_name" in str(error)
+    else:
+        raise AssertionError("Expected an unknown template override to fail.")
+
+
+def _candidate_row(**overrides: str) -> dict[str, str]:
+    """Return a complete accepted candidate row for promotion tests."""
+    row = {
+        "candidate_id": "candidate_default",
+        "artist_id": "artist_001",
+        "canonical_name": "Ada Rios",
+        "observation_type": "artist_profile",
+        "observed_entity_name": "Ada Rios",
+        "event_name": "",
+        "event_date": "",
+        "relationship_type": "identity_match",
+        "source_url": "https://example.com/source",
+        "source_name": "Example",
+        "raw_text_excerpt": "Ada Rios source excerpt",
+        "suggested_confidence_score": "0.8",
+        "accepted": "yes",
+        "needs_human_review_reason": "Verify before promotion.",
+        "why_matched": "Name matched.",
+        "review_notes": "",
+    }
+    row.update(overrides)
+    return row

@@ -1,1 +1,1 @@
-"""Test package for the Art Taste Graph MVP."""
+"""Test package for the Universal Graph MVP."""

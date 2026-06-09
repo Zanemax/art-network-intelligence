@@ -156,8 +156,8 @@ def build_investment_graph(
     for index, record in enumerate(dataset["auction_results"].to_dict(orient="records"), start=1):
         if not _included_as_of(record["sale_date"], cutoff_date):
             continue
-        auction_id = f"auction_{index:03d}_{record['artist_id']}"
-        graph.add_node(auction_id, node_type="auction_result", **record)
+        auction_id = record.get("auction_result_id") or f"auction_{index:03d}_{record['artist_id']}"
+        graph.add_node(auction_id, node_type="auction_result", title=_auction_result_title(record), **record)
         _add_temporal_edge(
             graph,
             source_id=record["artist_id"],
@@ -170,11 +170,11 @@ def build_investment_graph(
         )
 
     for record in dataset["press_mentions"].to_dict(orient="records"):
-        press_date = record.get("date", f"{record['year']}-12-31")
+        press_date = _press_mention_date(record)
         if not _included_as_of(press_date, cutoff_date):
             continue
-        press_id = f"press_{record['artist_id']}_{record['year']}"
-        graph.add_node(press_id, node_type="press_mentions", **record)
+        press_id = _press_mention_id(record)
+        graph.add_node(press_id, node_type="press_mentions", title=_press_mention_title(record), **record)
         _add_temporal_edge(
             graph,
             source_id=record["artist_id"],
@@ -187,6 +187,54 @@ def build_investment_graph(
         )
 
     return graph
+
+
+def _auction_result_title(record: Mapping[str, object]) -> str:
+    """Return a readable label for an auction result node."""
+    work_title = str(record.get("work_title") or "").strip()
+    sale_name = str(record.get("sale_name") or "").strip()
+    return work_title or sale_name or "Auction result"
+
+
+def _press_mention_date(record: Mapping[str, object]) -> str:
+    """Return the best available date for a press mention."""
+    publication_date = str(record.get("publication_date") or "").strip()
+    if publication_date:
+        return publication_date
+    date = str(record.get("date") or "").strip()
+    if date:
+        return date
+    return f"{record['year']}-12-31"
+
+
+def _press_mention_id(record: Mapping[str, object]) -> str:
+    """Return a stable press node ID without collapsing distinct articles."""
+    press_mention_id = str(record.get("press_mention_id") or "").strip()
+    if press_mention_id:
+        return press_mention_id
+    return f"press_{record['artist_id']}_{record['year']}"
+
+
+def _press_mention_title(record: Mapping[str, object]) -> str:
+    """Return a readable label for article-level or aggregate press data."""
+    article_title = str(record.get("article_title") or "").strip()
+    outlet = str(record.get("outlet_name") or "").strip()
+    year = str(record.get("year") or "").strip()
+    mentions = record.get("mentions", record.get("mention_count", ""))
+
+    if article_title:
+        return article_title
+    if outlet and year:
+        return f"{outlet} press mention ({year})"
+    try:
+        mention_total = int(float(mentions))
+    except (TypeError, ValueError):
+        mention_total = 0
+    if mention_total > 1 and year:
+        return f"{mention_total} press mentions in {year}"
+    if year:
+        return f"Press mention in {year}"
+    return "Press mention"
 
 
 def build_graph_as_of(cutoff_date: str) -> nx.MultiDiGraph:
@@ -238,6 +286,8 @@ def _add_temporal_edge(
     cutoff_date: str | None,
 ) -> None:
     """Add an edge with the canonical temporal relationship attributes."""
+    if not source_id or not target_id:
+        return
     if not _included_as_of(start_date, cutoff_date):
         return
 

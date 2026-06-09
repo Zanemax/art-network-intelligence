@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.app.branding import FAVICON_PATH, PRODUCT_NAME, SHORT_NAME, TAGLINE, existing_asset  # noqa: E402
+from src.app.branding import FAVICON_PATH, PRODUCT_NAME, TAGLINE, existing_asset  # noqa: E402
 from src.app.components.ui import (  # noqa: E402
     driver_list,
     empty_state,
@@ -45,6 +45,7 @@ from src.app.components.graph_view import (  # noqa: E402
 )
 from src.data.quality import LOW_QUALITY_WARNING, calculate_data_quality  # noqa: E402
 from src.data.loaders import imported_data_available, load_imported_dataset  # noqa: E402
+from src.data.import_research_template import RESEARCH_REQUIRED_COLUMNS, import_research_template  # noqa: E402
 from src.data.synthetic import load_synthetic_dataset  # noqa: E402
 from src.data.validate_schemas import validate_template_directory  # noqa: E402
 from src.graph.build_graph import build_investment_graph  # noqa: E402
@@ -59,10 +60,12 @@ PAGES = [
     "Artist Profile",
     "Evidence",
     "Comparables",
-    "Taste Graph Explorer",
+    "Universal Graph",
+    "Research Intake",
 ]
 
 DEFAULT_GRAPH_NODE_TYPES = {"artist", "gallery", "museum", "collector", "curator", "exhibition", "acquisition"}
+RESEARCH_TEMPLATE_PATH = REPO_ROOT / "data" / "raw" / "templates" / "artist_research_template.csv"
 
 
 def main() -> None:
@@ -94,11 +97,15 @@ def main() -> None:
     artists = _artist_options(predictions)
     selected_label = st.sidebar.selectbox("Artist universe", artists, label_visibility="collapsed")
     selected = predictions.loc[predictions["artist_id"] == artists[selected_label]].iloc[0]
-    as_of_date = st.sidebar.text_input("Prediction date", value="2021-12-31")
+    as_of_date = st.sidebar.text_input(
+        "Prediction date",
+        value=_default_prediction_date(dataset, data_source),
+        key=f"prediction_date_{data_source.lower().replace(' ', '_')}",
+    )
     page = st.sidebar.radio("Navigation", PAGES, label_visibility="collapsed")
 
     render_header(
-        f"{SHORT_NAME} / {page}",
+        page,
         f"{TAGLINE} Collector-facing research focused on thesis, evidence, and comparable outcomes. Source: {data_source}.",
         _last_refresh_timestamp(),
     )
@@ -112,8 +119,10 @@ def main() -> None:
         _render_evidence(dataset, graph, quality, selected, as_of_date)
     elif page == "Comparables":
         _render_comparables(dataset, graph, selected, as_of_date)
-    else:
+    elif page == "Universal Graph":
         _render_taste_graph_explorer(graph, selected, as_of_date)
+    else:
+        _render_research_intake(dataset, selected)
 
 
 @st.cache_data(show_spinner=False)
@@ -165,6 +174,35 @@ def _heuristic_predictions(features: pd.DataFrame) -> pd.DataFrame:
     score = (scaled * weights).sum(axis=1).clip(lower=0.01, upper=0.99)
     rows["prediction_probability"] = score
     return rows.sort_values("prediction_probability", ascending=False).reset_index(drop=True)
+
+
+def _default_prediction_date(dataset: dict[str, pd.DataFrame], data_source: str) -> str:
+    """Choose a sensible default cutoff date for the selected data source."""
+    if data_source != "Imported real data":
+        return "2021-12-31"
+
+    date_columns = (
+        ("exhibitions", "date"),
+        ("acquisitions", "date"),
+        ("auction_results", "sale_date"),
+        ("collector_holdings", "date"),
+    )
+    dates = []
+    for table_name, column in date_columns:
+        frame = dataset.get(table_name, pd.DataFrame())
+        if frame.empty or column not in frame.columns:
+            continue
+        parsed = pd.to_datetime(frame[column], errors="coerce")
+        dates.extend(parsed.dropna().tolist())
+
+    press = dataset.get("press_mentions", pd.DataFrame())
+    if not press.empty and "year" in press.columns:
+        years = pd.to_numeric(press["year"], errors="coerce").dropna().astype(int)
+        dates.extend(pd.Timestamp(f"{year}-12-31") for year in years)
+
+    if not dates:
+        return "2021-12-31"
+    return max(dates).strftime("%Y-%m-%d")
 
 
 def _render_artist_brief(
@@ -299,8 +337,11 @@ def _render_evidence(
     with right:
         section_heading("Evidence Summary", "Signals used by the model")
         evidence_grid(_collector_evidence_summary(feature_row, artist_quality), limit=7)
-        section_heading("Career Evidence", f"Visible on or before {as_of_date}")
-        relationship_cards(_artist_timeline(graph, artist_id, as_of_date), limit=8)
+
+    section_heading("Uploaded Exhibitions", f"Visible on or before {as_of_date}")
+    relationship_cards(_artist_exhibition_cards(dataset, graph, artist_id, as_of_date), limit=10)
+    section_heading("Press Mentions", f"Visible on or before {as_of_date}")
+    relationship_cards(_artist_press_cards(dataset, artist_id, as_of_date), limit=8)
 
     section_heading("Source Tables", "Detailed records, collapsed by default")
     _render_profile_expanders(dataset, graph, artist_id, as_of_date)
@@ -368,7 +409,7 @@ def _render_taste_graph_explorer(
     as_of_date: str,
 ) -> None:
     """Render the full graph explorer as a focused evidence workflow."""
-    st.markdown("## Taste Graph Explorer")
+    st.markdown("## Universal Graph")
     note_box("Default view is an ego-network so the graph stays legible. Use full-network mode only after narrowing filters.")
 
     node_types = sorted({str(data.get("node_type", "unknown")) for _, data in graph.nodes(data=True)})
@@ -433,6 +474,207 @@ def _render_taste_graph_explorer(
         _show_table(_selected_node_detail(graph, selected_node_id))
         section_heading("Relationships", "Filtered evidence touching selected node")
         relationship_cards(_selected_node_relationships(visible_graph, selected_node_id), limit=8)
+
+
+def _render_research_intake(dataset: dict[str, pd.DataFrame], selected: pd.Series) -> None:
+    """Render a focused form for appending manual research observations."""
+    st.markdown("## Research Intake")
+    template_rows = _load_research_template_rows()
+    artist_count = template_rows["artist_id"].replace("", pd.NA).dropna().nunique() if not template_rows.empty else 0
+
+    cols = st.columns(4)
+    cols[0].metric("Template Rows", len(template_rows))
+    cols[1].metric("Artists Started", artist_count)
+    cols[2].metric("Target Artists", "50")
+    cols[3].metric("Remaining", max(0, 50 - int(artist_count)))
+
+    artist_defaults = _research_artist_defaults(dataset, template_rows, selected)
+    observation_type = st.radio(
+        "Observation type",
+        ["Artist / Gallery", "Exhibition", "Auction Result", "Press Mention"],
+        horizontal=True,
+    )
+
+    with st.form("research_intake_form", clear_on_submit=True):
+        common_cols = st.columns([0.32, 0.34, 0.34])
+        artist_id = common_cols[0].text_input("Artist ID", value=artist_defaults["artist_id"])
+        artist_name = common_cols[1].text_input("Artist name", value=artist_defaults["artist_name"])
+        confidence = common_cols[2].number_input("Confidence", min_value=0.0, max_value=1.0, value=1.0, step=0.05)
+
+        row = _blank_research_row(artist_id, artist_name)
+        _fill_observation_fields(row, observation_type, confidence)
+        row["notes"] = st.text_area("Notes", height=80)
+
+        submitted = st.form_submit_button("Add observation")
+
+    if submitted:
+        if not artist_id.strip() or not artist_name.strip():
+            note_box("Artist ID and artist name are required.", warning=True)
+        elif not _row_has_observation(row):
+            note_box("Add at least one sourced observation field before saving.", warning=True)
+        else:
+            _append_research_template_row(row)
+            _load_demo_state.clear()
+            st.success("Observation added to the research template.")
+
+    action_cols = st.columns([0.25, 0.75])
+    if action_cols[0].button("Regenerate imported data"):
+        try:
+            import_research_template(RESEARCH_TEMPLATE_PATH)
+        except ValueError as error:
+            note_box(str(error), warning=True)
+        else:
+            _load_demo_state.clear()
+            st.success("Imported data regenerated from the research template.")
+
+    section_heading("Recent Template Rows", "Latest manual observations")
+    preview_columns = [
+        "artist_id",
+        "artist_name",
+        "gallery_name",
+        "museum_name",
+        "event_name",
+        "auction_house",
+        "work_title",
+        "press_outlet",
+        "article_title",
+    ]
+    _show_table(template_rows.tail(12)[[column for column in preview_columns if column in template_rows.columns]])
+
+
+def _fill_observation_fields(row: dict[str, str], observation_type: str, confidence: float) -> None:
+    """Render observation-specific inputs and write them into a template row."""
+    confidence_text = f"{confidence:.2f}"
+    if observation_type == "Artist / Gallery":
+        bio_cols = st.columns(4)
+        row["birth_year"] = bio_cols[0].text_input("Birth year")
+        row["nationality"] = bio_cols[1].text_input("Nationality")
+        row["gender"] = bio_cols[2].text_input("Gender")
+        row["primary_medium"] = bio_cols[3].text_input("Primary medium")
+        row["bio_source_url"] = st.text_input("Bio source URL")
+        row["bio_confidence_score"] = confidence_text
+
+        gallery_cols = st.columns(3)
+        row["gallery_name"] = gallery_cols[0].text_input("Gallery name")
+        row["gallery_city"] = gallery_cols[1].text_input("Gallery city")
+        row["gallery_country"] = gallery_cols[2].text_input("Gallery country")
+        gallery_meta = st.columns(4)
+        row["gallery_tier"] = gallery_meta[0].selectbox("Gallery tier", ["", "emerging", "mid", "major", "top", "mega"])
+        row["gallery_prestige_score"] = gallery_meta[1].text_input("Gallery score")
+        row["gallery_start_date"] = gallery_meta[2].text_input("Representation start")
+        row["gallery_confidence_score"] = confidence_text
+        row["gallery_source_url"] = st.text_input("Gallery source URL")
+    elif observation_type == "Exhibition":
+        host_cols = st.columns(3)
+        host_kind = host_cols[0].selectbox("Host type", ["Gallery", "Museum"])
+        host_name = host_cols[1].text_input("Host name")
+        event_type = host_cols[2].selectbox(
+            "Event type",
+            ["gallery_exhibition", "museum_exhibition", "solo_show", "group_show", "major_solo_show", "biennial_inclusion"],
+        )
+        place_cols = st.columns(2)
+        host_city = place_cols[0].text_input("Host city")
+        host_country = place_cols[1].text_input("Host country")
+        if host_kind == "Gallery":
+            row["gallery_name"] = host_name
+            row["gallery_city"] = host_city
+            row["gallery_country"] = host_country
+            row["gallery_source_url"] = st.text_input("Gallery source URL")
+            row["gallery_confidence_score"] = confidence_text
+        else:
+            row["museum_name"] = host_name
+            row["museum_city"] = host_city
+            row["museum_country"] = host_country
+            row["museum_tier"] = st.selectbox("Museum tier", ["", "regional", "mid", "major", "top"])
+        event_cols = st.columns(3)
+        row["event_name"] = event_cols[0].text_input("Exhibition title")
+        row["event_start_date"] = event_cols[1].text_input("Start date")
+        row["event_end_date"] = event_cols[2].text_input("End date")
+        row["museum_event_type"] = event_type
+        row["event_source_url"] = st.text_input("Exhibition source URL")
+        row["event_confidence_score"] = confidence_text
+    elif observation_type == "Auction Result":
+        auction_cols = st.columns(4)
+        row["auction_house"] = auction_cols[0].text_input("Auction house")
+        row["sale_name"] = auction_cols[1].text_input("Sale name")
+        row["lot_number"] = auction_cols[2].text_input("Lot number")
+        row["sale_date"] = auction_cols[3].text_input("Sale date")
+        work_cols = st.columns(3)
+        row["work_title"] = work_cols[0].text_input("Work title")
+        row["work_medium"] = work_cols[1].text_input("Medium")
+        row["creation_year"] = work_cols[2].text_input("Creation year")
+        price_cols = st.columns(4)
+        row["estimate_low_usd"] = price_cols[0].text_input("Low estimate USD")
+        row["estimate_high_usd"] = price_cols[1].text_input("High estimate USD")
+        row["price_usd"] = price_cols[2].text_input("Price USD")
+        row["currency"] = price_cols[3].text_input("Original currency", value="USD")
+        row["auction_source_url"] = st.text_input("Auction source URL")
+        row["auction_confidence_score"] = confidence_text
+    else:
+        press_cols = st.columns(3)
+        row["press_outlet"] = press_cols[0].text_input("Outlet")
+        row["article_title"] = press_cols[1].text_input("Article title")
+        row["article_author"] = press_cols[2].text_input("Author")
+        press_meta = st.columns(3)
+        row["publication_date"] = press_meta[0].text_input("Publication date")
+        row["mention_count"] = press_meta[1].text_input("Mention count", value="1")
+        row["sentiment_score"] = press_meta[2].text_input("Sentiment score", value="0")
+        row["article_url"] = st.text_input("Article URL")
+        row["press_confidence_score"] = confidence_text
+
+
+def _load_research_template_rows() -> pd.DataFrame:
+    """Load the manual research template with stable columns."""
+    if not RESEARCH_TEMPLATE_PATH.exists():
+        return pd.DataFrame(columns=RESEARCH_REQUIRED_COLUMNS)
+    rows = pd.read_csv(RESEARCH_TEMPLATE_PATH, dtype=str, keep_default_na=False)
+    for column in RESEARCH_REQUIRED_COLUMNS:
+        if column not in rows.columns:
+            rows[column] = ""
+    return rows[list(RESEARCH_REQUIRED_COLUMNS)].fillna("")
+
+
+def _append_research_template_row(row: dict[str, str]) -> None:
+    """Append one observation row to the manual research template."""
+    rows = _load_research_template_rows()
+    output = pd.concat([rows, pd.DataFrame([row], columns=RESEARCH_REQUIRED_COLUMNS)], ignore_index=True)
+    output.to_csv(RESEARCH_TEMPLATE_PATH, index=False)
+
+
+def _blank_research_row(artist_id: str, artist_name: str) -> dict[str, str]:
+    """Create an empty research-template row with artist identity filled."""
+    row = {column: "" for column in RESEARCH_REQUIRED_COLUMNS}
+    row["artist_id"] = artist_id.strip()
+    row["artist_name"] = artist_name.strip()
+    return row
+
+
+def _row_has_observation(row: dict[str, str]) -> bool:
+    """Return whether a row includes any non-identity evidence fields."""
+    identity = {"artist_id", "artist_name", "notes"}
+    return any(value for column, value in row.items() if column not in identity)
+
+
+def _research_artist_defaults(
+    dataset: dict[str, pd.DataFrame],
+    template_rows: pd.DataFrame,
+    selected: pd.Series,
+) -> dict[str, str]:
+    """Return the selected artist as intake defaults."""
+    artist_id = str(selected.get("artist_id", ""))
+    artist_name = str(selected.get("name", ""))
+    if template_rows.empty:
+        return {"artist_id": artist_id, "artist_name": artist_name}
+    matches = template_rows[template_rows["artist_id"] == artist_id]
+    if not matches.empty:
+        return {"artist_id": artist_id, "artist_name": str(matches.iloc[0].get("artist_name") or artist_name)}
+    artists = dataset.get("artists", pd.DataFrame())
+    if not artists.empty and "artist_id" in artists.columns:
+        rows = artists[artists["artist_id"] == artist_id]
+        if not rows.empty:
+            name_column = "name" if "name" in rows.columns else "canonical_name"
+            artist_name = str(rows.iloc[0].get(name_column) or artist_name)
+    return {"artist_id": artist_id, "artist_name": artist_name}
 
 
 def _render_dashboard(
@@ -602,7 +844,7 @@ def _render_similar_artists(
 
 def _render_graph_explorer(graph: nx.MultiDiGraph, selected_artist_id: str) -> None:
     """Render the interactive graph explorer."""
-    st.markdown("## Taste Graph Explorer")
+    st.markdown("## Universal Graph")
     node_types = sorted({str(data.get("node_type", "unknown")) for _, data in graph.nodes(data=True)})
     relationship_types = sorted({str(data.get("relationship_type", "unknown")) for _, _, data in graph.edges(data=True)})
 
@@ -922,18 +1164,44 @@ def _display_frame(frame: pd.DataFrame) -> pd.DataFrame:
         elif column in {"node_type", "counterparty_type", "entity_type"}:
             display[column] = display[column].map(node_type_display_label)
         elif column in {"field", "indicator", "direction", "signal", "metric", "table", "model", "target"}:
-            display[column] = display[column].map(humanize_identifier)
+            display[column] = display[column].map(_humanize_column_name)
         elif column == "shared_signals":
             display[column] = display[column].map(_humanize_signal_text)
-    display = display.rename(columns={column: humanize_identifier(column) for column in display.columns})
+        else:
+            display[column] = display[column].map(_humanize_display_value)
+    display = display.rename(columns={column: _humanize_column_name(column) for column in display.columns})
+    for column in display.columns:
+        if display[column].dtype == "object":
+            display[column] = display[column].map(lambda value: "" if pd.isna(value) else str(value))
     return display
+
+
+def _humanize_column_name(value: object) -> str:
+    """Return readable but distinct table column labels."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    abbreviations = {"id": "ID", "url": "URL", "usd": "USD", "1y": "1Y", "3y": "3Y"}
+    return " ".join(abbreviations.get(part.lower(), part.capitalize()) for part in text.removesuffix(".csv").replace("_", " ").split())
+
+
+def _humanize_display_value(value: object) -> object:
+    """Make raw identifier-like cell values readable without touching prose or URLs."""
+    if pd.isna(value):
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or "_" not in text or "://" in text:
+        return value
+    return humanize_identifier(text)
 
 
 def _humanize_signal_text(value: object) -> str:
     """Make feature-signal prose readable without changing source data."""
     if pd.isna(value):
         return ""
-    return str(value).replace("_", " ")
+    return ", ".join(humanize_identifier(part.strip()) for part in str(value).split(","))
 
 
 def _current_gallery(graph: nx.MultiDiGraph, artist_id: str, as_of_date: str) -> str:
@@ -971,14 +1239,184 @@ def _artist_timeline(graph: nx.MultiDiGraph, artist_id: str, as_of_date: str) ->
             {
                 "date": event_date.strftime("%Y-%m-%d"),
                 "relationship": relationship_display_label(str(edge_data.get("relationship_type"))),
-                "counterparty": other_data.get("name") or other_data.get("title") or other_id,
-                "counterparty_type": node_type_display_label(str(other_data.get("node_type"))),
+                "counterparty": other_data.get("name") or other_data.get("title") or humanize_identifier(other_id),
+                "counterparty_type": _timeline_counterparty_type(graph, other_id, other_data),
                 "confidence": float(edge_data.get("confidence_score", 0)),
+                "detail": _timeline_detail(other_data, edge_data),
             }
         )
     if not rows:
         return pd.DataFrame(columns=["date", "relationship", "counterparty", "counterparty_type", "confidence"])
     return pd.DataFrame(rows).sort_values("date", ascending=False)
+
+
+def _timeline_counterparty_type(graph: nx.MultiDiGraph, node_id: str, node_data: dict[str, object]) -> str:
+    """Return a useful secondary label for timeline cards."""
+    node_type = str(node_data.get("node_type", ""))
+    if node_type == "press_mentions":
+        return str(node_data.get("outlet_name") or node_type_display_label(node_type))
+    if node_type == "exhibition":
+        institution_id = str(node_data.get("institution_id") or "")
+        institution = graph.nodes[institution_id] if institution_id in graph else {}
+        return str(institution.get("name") or institution.get("title") or node_type_display_label(node_type))
+    if node_type == "auction_result":
+        return str(node_data.get("auction_house") or node_type_display_label(node_type))
+    return node_type_display_label(node_type)
+
+
+def _timeline_detail(node_data: dict[str, object], edge_data: dict[str, object]) -> str:
+    """Return optional detail metadata for timeline cards."""
+    node_type = str(node_data.get("node_type", ""))
+    if node_type == "auction_result":
+        return _auction_timeline_detail(node_data, edge_data)
+    if node_type != "press_mentions":
+        return ""
+    details = []
+    outlet = str(node_data.get("outlet_name", "") or "").strip()
+    author = str(node_data.get("author", "") or "").strip()
+    mention_count = str(node_data.get("mention_count", node_data.get("mentions", "")) or "").strip()
+    sentiment = str(node_data.get("sentiment_score", "") or "").strip()
+    source = _source_domain(node_data.get("source_url") or node_data.get("url") or edge_data.get("source_url") or "")
+    confidence = edge_data.get("confidence_score", node_data.get("confidence_score", ""))
+    if author:
+        details.append(f"Author: {author}")
+    if mention_count:
+        details.append(f"Attention: {mention_count}")
+    if sentiment:
+        details.append(f"Sentiment: {sentiment}")
+    if source and source != "Not entered":
+        details.append(f"Source: {source}")
+    try:
+        details.append(f"Confidence: {float(confidence):.2f}")
+    except (TypeError, ValueError):
+        if confidence:
+            details.append(f"Confidence: {confidence}")
+    return " | ".join(details)
+
+
+def _auction_timeline_detail(node_data: dict[str, object], edge_data: dict[str, object]) -> str:
+    """Return concise auction metadata without repeating the card title."""
+    details = []
+    sale_name = str(node_data.get("sale_name", "") or "").strip()
+    lot_number = str(node_data.get("lot_number", "") or "").strip()
+    price = node_data.get("price_usd")
+    source = _source_domain(node_data.get("source_url") or edge_data.get("source_url") or "")
+    confidence = edge_data.get("confidence_score", node_data.get("confidence_score", ""))
+    if sale_name:
+        details.append(f"Sale: {sale_name}")
+    if lot_number:
+        details.append(f"Lot: {lot_number}")
+    if price not in {None, ""}:
+        try:
+            details.append(f"Price: {float(price):,.0f} USD")
+        except (TypeError, ValueError):
+            details.append(f"Price: {price} USD".strip())
+    if source and source != "Not entered":
+        details.append(f"Source: {source}")
+    try:
+        details.append(f"Confidence: {float(confidence):.2f}")
+    except (TypeError, ValueError):
+        if confidence:
+            details.append(f"Confidence: {confidence}")
+    return " | ".join(details)
+
+
+def _artist_exhibition_cards(
+    dataset: dict[str, pd.DataFrame],
+    graph: nx.MultiDiGraph,
+    artist_id: str,
+    as_of_date: str,
+) -> pd.DataFrame:
+    """Return uploaded exhibition rows as visible evidence cards."""
+    exhibitions = dataset.get("exhibitions", pd.DataFrame())
+    if exhibitions.empty or "artist_id" not in exhibitions.columns:
+        return pd.DataFrame(columns=["date", "relationship", "counterparty", "counterparty_type", "confidence"])
+    rows = exhibitions[exhibitions["artist_id"] == artist_id].copy()
+    if rows.empty:
+        return pd.DataFrame(columns=["date", "relationship", "counterparty", "counterparty_type", "confidence"])
+    rows = rows[pd.to_datetime(rows["date"], errors="coerce") <= pd.Timestamp(as_of_date)]
+    evidence_rows = []
+    for _, row in rows.sort_values("date", ascending=False).iterrows():
+        host_id = str(row.get("institution_id", ""))
+        host_data = graph.nodes[host_id] if host_id in graph else {}
+        host_label = host_data.get("name") or host_data.get("title") or humanize_identifier(host_id) or "Venue not entered"
+        event_type = str(row.get("event_type") or row.get("institution_type") or "exhibition")
+        relationship = "Gallery exhibition" if event_type == "gallery_exhibition" else "Museum exhibition"
+        end_date = str(row.get("end_date", "") or "")
+        date_range = str(row.get("date", ""))
+        if end_date and end_date != date_range:
+            date_range = f"{date_range} to {end_date}"
+        details = [
+            f"Dates: {date_range}",
+            f"Source: {_source_domain(row.get('source_url', ''))}",
+            f"Confidence: {float(row.get('confidence_score', 0) or 0):.2f}",
+        ]
+        evidence_rows.append(
+            {
+                "date": str(row.get("date", "")),
+                "relationship": relationship,
+                "counterparty": str(row.get("title") or row.get("exhibition_id") or "Untitled exhibition"),
+                "counterparty_type": host_label,
+                "confidence": float(row.get("confidence_score", 0) or 0),
+                "detail": " | ".join(part for part in details if not part.endswith(": ")),
+            }
+        )
+    return pd.DataFrame(evidence_rows)
+
+
+def _artist_press_cards(
+    dataset: dict[str, pd.DataFrame],
+    artist_id: str,
+    as_of_date: str,
+) -> pd.DataFrame:
+    """Return uploaded press rows as visible evidence cards."""
+    press = dataset.get("press_mentions", pd.DataFrame())
+    if press.empty or "artist_id" not in press.columns:
+        return pd.DataFrame(columns=["date", "relationship", "counterparty", "counterparty_type", "confidence", "detail"])
+    rows = press[press["artist_id"] == artist_id].copy()
+    if rows.empty:
+        return pd.DataFrame(columns=["date", "relationship", "counterparty", "counterparty_type", "confidence", "detail"])
+    if "publication_date" in rows.columns:
+        dates = pd.to_datetime(rows["publication_date"], errors="coerce")
+    else:
+        dates = pd.to_datetime(rows["year"].astype(str) + "-12-31", errors="coerce")
+    rows = rows.assign(_display_date=dates)
+    rows = rows[rows["_display_date"] <= pd.Timestamp(as_of_date)]
+    evidence_rows = []
+    for _, row in rows.sort_values("_display_date", ascending=False).iterrows():
+        date = row["_display_date"].strftime("%Y-%m-%d") if pd.notna(row["_display_date"]) else str(row.get("year", ""))
+        outlet = str(row.get("outlet_name", "") or "Outlet not entered")
+        author = str(row.get("author", "") or "Author not entered")
+        mention_count = str(row.get("mention_count", "") or "Not scored")
+        sentiment = str(row.get("sentiment_score", "") or "Not scored")
+        details = [
+            f"Author: {author}",
+            f"Attention: {mention_count}",
+            f"Sentiment: {sentiment}",
+            f"Source: {_source_domain(row.get('source_url') or row.get('url') or '')}",
+            f"Confidence: {float(row.get('confidence_score', 0) or 0):.2f}",
+        ]
+        evidence_rows.append(
+            {
+                "date": date,
+                "relationship": "Press mention",
+                "counterparty": str(row.get("article_title", "") or "Untitled article"),
+                "counterparty_type": outlet,
+                "confidence": float(row.get("confidence_score", 0) or 0),
+                "detail": " | ".join(part for part in details if not part.endswith(": ")),
+            }
+        )
+    return pd.DataFrame(evidence_rows)
+
+
+def _source_domain(value: object) -> str:
+    """Return a compact source domain for visible evidence cards."""
+    text = str(value or "").strip()
+    if not text:
+        return "Not entered"
+    if "://" not in text:
+        return text
+    return text.split("://", 1)[1].split("/", 1)[0].removeprefix("www.")
 
 
 def _filter_graph(
@@ -1086,8 +1524,8 @@ def _institutional_feed(graph: nx.MultiDiGraph, limit: int = 8) -> pd.DataFrame:
             {
                 "date": data.get("start_date"),
                 "relationship": relationship_display_label(str(data.get("relationship_type"))),
-                "source": source_data.get("name") or source_data.get("title") or source,
-                "target": target_data.get("name") or target_data.get("title") or target,
+                "source": source_data.get("name") or source_data.get("title") or humanize_identifier(source),
+                "target": target_data.get("name") or target_data.get("title") or humanize_identifier(target),
                 "confidence": float(data.get("confidence_score", 0)),
             }
         )
@@ -1192,7 +1630,7 @@ def _entity_options(graph: nx.MultiDiGraph) -> dict[str, str]:
     labels = {}
     for node_id, data in sorted(graph.nodes(data=True), key=lambda item: str(item[1].get("name") or item[1].get("title") or item[0])):
         node_type = str(data.get("node_type", "unknown"))
-        label = data.get("name") or data.get("title") or node_id
+        label = data.get("name") or data.get("title") or humanize_identifier(node_id)
         labels[f"{label}  ·  {node_type_display_label(node_type)}"] = node_id
     return labels
 
@@ -1237,7 +1675,7 @@ def _selected_node_detail(graph: nx.MultiDiGraph, node_id: str) -> pd.DataFrame:
         return pd.DataFrame([{"field": "node", "value": "Not found"}])
     data = graph.nodes[node_id]
     fields = ["node_type", "name", "title", "region", "tier", "prestige_score", "birth_year"]
-    rows = [{"field": "node", "value": node_id}]
+    rows = [{"field": "node", "value": humanize_identifier(node_id)}]
     rows.extend(
         {"field": field, "value": node_type_display_label(str(data.get(field))) if field == "node_type" else data.get(field)}
         for field in fields
@@ -1252,7 +1690,7 @@ def _relationship_row(graph: nx.MultiDiGraph, direction: str, counterparty_id: s
     return {
         "direction": humanize_identifier(direction),
         "relationship": relationship_display_label(str(data.get("relationship_type"))),
-        "counterparty": counterparty.get("name") or counterparty.get("title") or counterparty_id,
+        "counterparty": counterparty.get("name") or counterparty.get("title") or humanize_identifier(counterparty_id),
         "date": data.get("start_date"),
         "confidence": float(data.get("confidence_score", 0)),
     }

@@ -26,7 +26,88 @@ def test_import_research_template_converts_rows_to_normalized_csvs(tmp_path) -> 
         "curated_artist",
     }
     assert output["auction_results.csv"].loc[0, "price_usd"] == "250000"
+    assert output["auction_results.csv"].loc[0, "sale_date"] == "2023-06-10"
     assert output["press_mentions.csv"].loc[0, "outlet_name"] == "Art Journal"
+    assert output["events.csv"].loc[0, "institution_id"] == "institution_example_museum"
+
+
+def test_import_research_template_infers_gallery_exhibition_from_source_domain(tmp_path) -> None:
+    """Verify gallery exhibition rows can be linked through a known gallery domain."""
+    template_path = tmp_path / "artist_research_template.csv"
+    output_dir = tmp_path / "imported"
+    gallery_row = {column: "" for column in RESEARCH_REQUIRED_COLUMNS}
+    gallery_row.update(
+        {
+            "artist_id": "artist_jane_doe",
+            "artist_name": "Jane Doe",
+            "bio_source_url": "https://example.com/jane/bio",
+            "bio_confidence_score": "0.9",
+            "gallery_name": "Example Gallery",
+            "gallery_city": "New York",
+            "gallery_country": "US",
+            "gallery_source_url": "https://example-gallery.test/about",
+            "gallery_confidence_score": "0.9",
+        }
+    )
+    event_row = {column: "" for column in RESEARCH_REQUIRED_COLUMNS}
+    event_row.update(
+        {
+            "artist_id": "artist_jane_doe",
+            "artist_name": "Jane Doe",
+            "bio_source_url": "https://example.com/jane/bio",
+            "bio_confidence_score": "0.9",
+            "event_name": "Jane Doe: Gallery Exhibition",
+            "event_start_date": "22/02/2024",
+            "event_end_date": "30/03/2024",
+            "event_source_url": "https://www.example-gallery.test/exhibitions/jane-doe",
+            "event_confidence_score": "1.0",
+        }
+    )
+    pd.DataFrame([gallery_row, event_row], columns=RESEARCH_REQUIRED_COLUMNS).to_csv(template_path, index=False)
+
+    output = import_research_template(template_path, output_dir)
+
+    event = output["events.csv"][output["events.csv"]["event_name"] == "Jane Doe: Gallery Exhibition"].iloc[0]
+    assert event["event_type"] == "gallery_exhibition"
+    assert event["institution_id"] == "institution_example_gallery"
+    assert event["start_date"] == "2024-02-22"
+    assert (
+        output["relationships.csv"][output["relationships.csv"]["relationship_type"] == "gallery_exhibition"]
+        .iloc[0]["target_node_id"]
+        == "gallery_example_gallery"
+    )
+
+
+def test_gallery_exhibition_does_not_create_representation(tmp_path) -> None:
+    """Verify a gallery-hosted exhibition is not treated as gallery representation."""
+    template_path = tmp_path / "artist_research_template.csv"
+    output_dir = tmp_path / "imported"
+    row = {column: "" for column in RESEARCH_REQUIRED_COLUMNS}
+    row.update(
+        {
+            "artist_id": "artist_jane_doe",
+            "artist_name": "Jane Doe",
+            "bio_source_url": "https://example.com/jane/bio",
+            "bio_confidence_score": "0.9",
+            "gallery_name": "Venue Gallery",
+            "gallery_city": "London",
+            "gallery_country": "UK",
+            "gallery_confidence_score": "1.0",
+            "museum_event_type": "gallery_exhibition",
+            "event_name": "Jane Doe at Venue Gallery",
+            "event_start_date": "2024-02-22",
+            "event_source_url": "https://venue-gallery.test/exhibitions/jane",
+            "event_confidence_score": "1.0",
+        }
+    )
+    pd.DataFrame([row], columns=RESEARCH_REQUIRED_COLUMNS).to_csv(template_path, index=False)
+
+    output = import_research_template(template_path, output_dir)
+
+    relationship_types = set(output["relationships.csv"]["relationship_type"])
+    assert output["galleries.csv"].loc[0, "source_url"] == "https://venue-gallery.test/exhibitions/jane"
+    assert "gallery_exhibition" in relationship_types
+    assert "represents" not in relationship_types
 
 
 def test_import_research_template_allows_header_only_template(tmp_path) -> None:
